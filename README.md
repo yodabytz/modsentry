@@ -43,6 +43,7 @@ Intuitive Display: View logs in a structured, easy-to-read format.
 ## Usage
 ```Run the application with the following command:
 python modsentry.py
+Scroll and hit enter to view more info about the attack.
 ```
 ## License
 ```
