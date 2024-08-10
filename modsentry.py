@@ -1,7 +1,13 @@
+#!/usr/bin/env python3
+
 import re
 import time
 import curses
 import os
+
+# Configuration Variables
+LOG_FILE_PATH = "/var/log/modsec_audit.log"  # Path to the log file
+IGNORE_RULE_IDS = {"12345", "953100"}  # Set of rule IDs to ignore (add your false positives here)
 
 # Function to parse a single log entry
 def parse_log_entry(entry):
@@ -93,8 +99,8 @@ def monitor_log_file(stdscr, log_file_path):
                 buffer = line + buffer
                 if line.startswith("---") and "A--" in line:
                     remote_date, remote_ip, host, rule_id, attack_name, severity, response_code = parse_log_entry(buffer)
-                    # Only append if there's a Rule ID
-                    if rule_id != 'N/A':
+                    # Only append if there's a Rule ID and it's not in the ignore list
+                    if rule_id != 'N/A' and rule_id not in IGNORE_RULE_IDS:
                         formatted_entry = format_entry(remote_date, remote_ip, host, rule_id, attack_name, severity, response_code)
                         entries.append(formatted_entry)
                     buffer = ''  # Clear buffer for the next entry
@@ -116,8 +122,8 @@ def monitor_log_file(stdscr, log_file_path):
 
                     for entry in entries[:-1]:
                         remote_date, remote_ip, host, rule_id, attack_name, severity, response_code = parse_log_entry(entry)
-                        # Only append if there's a Rule ID
-                        if rule_id != 'N/A':
+                        # Only append if there's a Rule ID and it's not in the ignore list
+                        if rule_id != 'N/A' and rule_id not in IGNORE_RULE_IDS:
                             formatted_entry = format_entry(remote_date, remote_ip, host, rule_id, attack_name, severity, response_code)
                             log_entries.append(formatted_entry)
                             log_entries = log_entries[-1000:]  # Keep only the last 1000 entries
@@ -148,8 +154,7 @@ def monitor_log_file(stdscr, log_file_path):
         time.sleep(3)
 
 def main():
-    log_file_path = "/var/log/modsec_audit.log"
-    curses.wrapper(monitor_log_file, log_file_path)
+    curses.wrapper(monitor_log_file, LOG_FILE_PATH)
 
 if __name__ == "__main__":
     main()
