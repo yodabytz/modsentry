@@ -4,6 +4,8 @@ import re
 import time
 import curses
 import os
+import subprocess
+import sys
 
 # Configuration Variables
 LOG_FILE_PATH = "/var/log/modsec_audit.log"  # Path to the log file
@@ -34,6 +36,35 @@ SEVERITY_COLOR_MAP = {
     "Info": 11,     # Bright Green
     "Debug": 12     # Bright Cyan
 }
+
+def check_iptables_chain():
+    """Check if the ModSentry iptables chain exists and create it if not."""
+    try:
+        # Check if the ModSentry chain exists
+        subprocess.run(['iptables', '-L', 'ModSentry'], check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    except subprocess.CalledProcessError:
+        # Create the ModSentry chain if it doesn't exist
+        subprocess.run(['iptables', '-N', 'ModSentry'], check=True)
+        # Insert the ModSentry chain into the INPUT chain
+        subprocess.run(['iptables', '-I', 'INPUT', '-j', 'ModSentry'], check=True)
+
+def is_ip_blocked(ip):
+    """Check if the given IP is already blocked in the ModSentry chain."""
+    result = subprocess.run(['iptables', '-L', 'ModSentry', '-n'], capture_output=True, text=True)
+    return ip in result.stdout
+
+def block_ip(ip):
+    """Block the given IP address using iptables."""
+    try:
+        # Trim whitespace from the IP address
+        ip = ip.strip()
+        if not is_ip_blocked(ip):
+            subprocess.run(['iptables', '-A', 'ModSentry', '-s', ip, '-j', 'DROP'], check=True)
+            return f"IP {ip} has been blocked."
+        else:
+            return f"IP {ip} is already blocked."
+    except subprocess.CalledProcessError as e:
+        return f"Failed to block IP {ip}: {str(e)}"
 
 # Function to parse a single log entry
 def parse_log_entry(entry):
@@ -69,7 +100,7 @@ def display_log_entries(stdscr, log_entries, current_line, selected_line):
     height, width = stdscr.getmaxyx()
 
     # Display log entries with colors for each column
-    for idx, entry in enumerate(log_entries[current_line:current_line + height - 6], start=4):
+    for idx, entry in enumerate(log_entries[current_line:current_line + height - 8], start=4):
         stdscr.move(idx, 1)
         stdscr.clrtoeol()  # Clear the current line before updating
 
@@ -97,6 +128,8 @@ def display_log_entries(stdscr, log_entries, current_line, selected_line):
         stdscr.addnstr(idx, start_x + 105, severity.strip().center(9), 9, curses.color_pair(severity_color) | (curses.A_REVERSE if is_selected else 0))
         stdscr.addnstr(idx, start_x + 115, response_code.strip().center(9), 9, curses.color_pair(5) | (curses.A_REVERSE if is_selected else 0))
 
+    # Add the block IP message at the bottom
+    stdscr.addstr(height - 3, 2, "Enter: More Info | 'b': Block IP | 'q': Quit", curses.color_pair(1))
     stdscr.refresh()
 
 # Function to format a log entry
@@ -208,6 +241,37 @@ def show_detailed_entry(stdscr, entry):
         elif char == curses.KEY_DOWN and current_line < max_scroll:
             current_line += 1
 
+# Function to show a popup confirmation window
+def show_confirmation_window(stdscr, message):
+    max_y, max_x = stdscr.getmaxyx()
+    win_width = 50
+    win_height = 5
+
+    win = curses.newwin(win_height, win_width, (max_y - win_height) // 2, (max_x - win_width) // 2)
+    win.border(0)
+    win.addstr(1, 2, message, curses.color_pair(1))
+    win.addstr(3, 2, "Press 'y' to confirm, 'n' to cancel.", curses.color_pair(1))
+    win.refresh()
+
+    while True:
+        char = win.getch()
+        if char in (ord('y'), ord('Y')):
+            return True
+        elif char in (ord('n'), ord('N')):
+            return False
+
+# Function to show a done message window
+def show_done_window(stdscr, message):
+    max_y, max_x = stdscr.getmaxyx()
+    win_width = len(message) + 4
+    win_height = 3
+
+    win = curses.newwin(win_height, win_width, (max_y - win_height) // 2, (max_x - win_width) // 2)
+    win.border(0)
+    win.addstr(1, 2, message, curses.color_pair(1))
+    win.refresh()
+    time.sleep(3)
+
 # Function to draw the header
 def draw_header(stdscr, width):
     start_x = max(0, (width - 128) // 2)  # Ensure start_x is not negative
@@ -235,6 +299,8 @@ def monitor_log_file(stdscr, log_file_path):
     log_entries = []
     current_line = 0
     selected_line = 0
+
+    check_iptables_chain()  # Ensure the ModSentry chain is ready
 
     with open(log_file_path, 'r') as log_file:
         # Read the file backwards to get the last 10 entries
@@ -285,8 +351,8 @@ def monitor_log_file(stdscr, log_file_path):
             last_position = log_file.tell()  # Update the last position
 
             # Automatically scroll if we are at the bottom of the list
-            if current_line >= len(log_entries) - (height - 7):
-                current_line = max(0, len(log_entries) - (height - 7))
+            if current_line >= len(log_entries) - (height - 8):
+                current_line = max(0, len(log_entries) - (height - 8))
 
             # Display the last entries that fit the screen height
             display_log_entries(stdscr, log_entries, current_line, selected_line)
@@ -301,8 +367,22 @@ def monitor_log_file(stdscr, log_file_path):
                     current_line -= 1
             elif char == curses.KEY_DOWN and selected_line < len(log_entries) - 1:
                 selected_line += 1
-                if selected_line >= current_line + (height - 7):
+                if selected_line >= current_line + (height - 8):
                     current_line += 1
+            elif char == ord('b'):  # Handle block command
+                _, ip, _, _, _, _, _, _, _, _ = log_entries[selected_line].split('|')
+                if show_confirmation_window(stdscr, f"Block IP {ip.strip()}?"):
+                    stdscr.addstr(height - 3, 2, f"Blocking IP {ip}...                        ", curses.color_pair(1))
+                    stdscr.refresh()
+                    # Run the block command
+                    message = block_ip(ip)
+                    stdscr.addstr(height - 3, 2, message + " Press any key to continue.", curses.color_pair(1))
+                    stdscr.refresh()
+                    stdscr.getch()
+                    # Show "Done!" message if successful
+                    if "has been blocked" in message:
+                        show_done_window(stdscr, "Done!")
+
             elif char in (curses.KEY_ENTER, 10, 13):  # Handle Enter key
                 show_detailed_entry(stdscr, log_entries[selected_line])
                 stdscr.erase()  # Use erase to clear without flicker
@@ -313,7 +393,42 @@ def monitor_log_file(stdscr, log_file_path):
 
             time.sleep(0.1)  # Reduce CPU usage
 
+def display_help():
+    help_message = """
+ModSentry - ModSecurity Log Monitor
+
+Usage:
+  modsentry [options]
+
+Options:
+  -h, --help  Show this help message and exit
+
+Controls:
+  Enter  Show more info about the selected entry
+  b      Block the IP address of the selected entry
+  q      Quit the application
+
+Description:
+  ModSentry is a real-time log monitoring tool for ModSecurity logs.
+  It allows you to view and analyze security events, and block suspicious IPs.
+
+Requirements:
+  - Run as root or with sudo privileges for iptables access.
+"""
+
+    print(help_message)
+
 def main():
+    # Check for command line arguments
+    if len(sys.argv) > 1:
+        if sys.argv[1] in ('-h', '--help'):
+            display_help()
+            return
+
+    # Check if the script is run with root privileges
+    if os.geteuid() != 0:
+        print("This script must be run as root to access iptables. Please run with sudo.")
+        return
     curses.wrapper(monitor_log_file, LOG_FILE_PATH)
 
 if __name__ == "__main__":
