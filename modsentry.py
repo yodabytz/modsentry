@@ -76,9 +76,7 @@ def display_log_entries(stdscr, log_entries, current_line, selected_line):
         # Split the formatted entry into its components
         parts = entry.split('|')
         if len(parts) != 10:
-            # Truncate the malformed entry message to fit the screen width
-            message = f"Malformed entry: {entry[:width - 15]}..." if len(entry) > width - 15 else entry
-            stdscr.addnstr(idx, 1, message, width - 2, curses.color_pair(5))
+            # Skip malformed entries
             continue
 
         date, ip, host, rule_id, attack_name, severity, response_code, _, _, _ = parts
