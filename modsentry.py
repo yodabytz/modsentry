@@ -169,33 +169,46 @@ def show_detailed_entry(stdscr, entry):
 
     max_y, max_x = stdscr.getmaxyx()
 
-    for idx, (title, value) in enumerate(details):
+    # Prepare the text lines
+    lines = []
+    for title, value in details:
         wrapped_lines = wrap_text(value, max_x - 4)
-        stdscr.addstr(idx * 3 + 2, 2, f"{title}:", curses.color_pair(1) | curses.A_BOLD)
-        for i, line in enumerate(wrapped_lines):
-            stdscr.addstr(idx * 3 + 3 + i, 4, line, curses.color_pair(5))
+        lines.append(f"{title}:")
+        lines.extend(wrapped_lines)
+        lines.append("")  # Add a blank line for spacing
 
-    # Add margin above Additional Info
-    margin_idx = len(details) * 3 + 5  # Adding extra margin lines
-    stdscr.addstr(margin_idx, 2, " ", curses.color_pair(1))  # Clear space between sections
+    # Add a space before Additional Info
+    lines.append("")
 
-    # Format and display Additional Info with each line as a new entry
-    stdscr.addstr(margin_idx + 2, 2, "Additional Info:", curses.color_pair(1) | curses.A_BOLD)
+    # Add Additional Info
+    lines.append("Additional Info:")
     additional_info_lines = additional_info.split('\n')
-    for i, line in enumerate(additional_info_lines):
+    for line in additional_info_lines:
         wrapped_lines = wrap_text(line, max_x - 4)
-        for j, wrapped_line in enumerate(wrapped_lines):
-            stdscr.addstr(margin_idx + 3 + i + j, 4, wrapped_line, curses.color_pair(5))  # Ensure extra margin above additional info
+        lines.extend(wrapped_lines)
 
-    stdscr.addstr(0, (max_x - len("Attack Details")) // 2, "Attack Details", curses.color_pair(1) | curses.A_BOLD)
-    stdscr.addstr(max_y - 2, (max_x - len("Press <Left Arrow> to return")) // 2, "Press <Left Arrow> to return", curses.color_pair(1) | curses.A_BOLD)
-
-    stdscr.refresh()
+    # Implement scrolling
+    current_line = 0
+    max_scroll = len(lines) - (max_y - 4)
 
     while True:
+        stdscr.erase()  # Use erase instead of clear to reduce flickering
+        stdscr.border(0)
+        stdscr.addstr(0, (max_x - len("Attack Details")) // 2, "Attack Details", curses.color_pair(1) | curses.A_BOLD)
+        stdscr.addstr(max_y - 2, (max_x - len("Press <Left Arrow> to return | Up/Down to scroll")) // 2, "Press <Left Arrow> to return | Up/Down to scroll", curses.color_pair(1) | curses.A_BOLD)
+
+        for idx, line in enumerate(lines[current_line:current_line + max_y - 4], start=2):
+            stdscr.addstr(idx, 2, line, curses.color_pair(5))
+
+        stdscr.refresh()
+
         char = stdscr.getch()
         if char in (curses.KEY_BACKSPACE, curses.KEY_LEFT, 127):  # Handle Backspace or Left Arrow key
             break
+        elif char == curses.KEY_UP and current_line > 0:
+            current_line -= 1
+        elif char == curses.KEY_DOWN and current_line < max_scroll:
+            current_line += 1
 
 # Function to draw the header
 def draw_header(stdscr, width):
@@ -294,7 +307,7 @@ def monitor_log_file(stdscr, log_file_path):
                     current_line += 1
             elif char in (curses.KEY_ENTER, 10, 13):  # Handle Enter key
                 show_detailed_entry(stdscr, log_entries[selected_line])
-                stdscr.clear()  # Clear the screen when returning to refresh the main view
+                stdscr.erase()  # Use erase to clear without flicker
                 stdscr.border(0)
                 draw_header(stdscr, width)
                 log_file.seek(last_position)  # Ensure we continue from the correct position
