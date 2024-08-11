@@ -1,13 +1,15 @@
 ## ModSentry 1.0
 
-ModSentry is a real-time log monitoring tool for analyzing security events from ModSecurity logs. It provides an intuitive terminal interface to track alerts and highlight critical incidents. For this script to work, modsecurity must be set to Serial logging.
+ModSentry is a real-time log monitoring tool for analyzing security events from ModSecurity logs. It provides an intuitive terminal interface to track alerts and highlight critical incidents. For this script to work, ModSecurity must be set to Serial logging.
 
 ## Table of Contents
 
 - [Getting Started](#getting-started)
-- [Features](#features)
+- [Prerequisites](#prerequisites)
 - [Installation](#installation)
+- [Features](#features)
 - [Usage](#usage)
+- [Controls](#controls)
 - [License](#license)
 
 ## Getting Started
@@ -18,34 +20,37 @@ These instructions will help you set up and run ModSentry on your local machine 
 
 - Python 3.x
 - `curses` library (often included with Python on Unix-based systems)
+- Root or sudo access for iptables management
 
 ## Installation
 
 Clone the repository:
 
-```bash
+bash
+```
 git clone https://github.com/your_username/modsentry.git
 cd modsentry
 sudo cp modsentry.py /usr/bin/modsentry
 ```
-
-## Make the Script Executable
-```
-sudo chmod +x /usr/bin/modsentry
-```
 ## Features
-
-```Real-time Monitoring: Automatically updates to display new log entries.
+Real-time Monitoring: Automatically updates to display new log entries.
 Color-Coded Alerts: Quickly identify critical issues with color-coded severity levels.
-Scrolling Interface: Navigate through logs easily using keyboard input.
-Intuitive Display: View logs in a structured, easy-to-read format.
-```
+IP Blocking: Block suspicious IP addresses directly from the interface using iptables.
+Popup Confirmation: Confirmation dialogs for blocking IPs and successful actions.
+Scrollable Interface: Navigate through logs and detailed views with ease.
+Help Command: View usage instructions and controls via the -h switch.
+
 ## Usage
-```Run the application with the following command:
-python modsentry.py
-Scroll and hit enter to view more info about the attack.
+Run the application with the following command:
 ```
-## License
+sudo modsentry
+sudo modsentry -h
 ```
-This project is licensed under the MIT License - see the LICENSE file for details.
+### Controls
+```
+Enter: Show more info about the selected entry.
+b: Block the IP address of the selected entry.
+q: Quit the application.
+Up/Down Arrows: Navigate through log entries.
+Left Arrow/Backspace: Return to the main screen from a detailed view.
 ```
