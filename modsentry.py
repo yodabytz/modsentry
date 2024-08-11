@@ -8,6 +8,8 @@ import os
 # Configuration Variables
 LOG_FILE_PATH = "/var/log/modsec_audit.log"  # Path to the log file
 IGNORE_RULE_IDS = {"12345", "67890", "953100"}  # Set of rule IDs to ignore (add your false positives here)
+MIN_WIDTH = 128  # Minimum width for the terminal
+MIN_HEIGHT = 24  # Minimum height for the terminal
 
 # Mapping of severity numbers to descriptions
 SEVERITY_MAP = {
@@ -85,17 +87,17 @@ def display_log_entries(stdscr, log_entries, current_line, selected_line):
         is_selected = idx - 4 == selected_line
 
         # Calculate positions to center the data
-        date_pos = (width - 128) // 2 + 1
-        stdscr.addnstr(idx, date_pos, date.strip(), 22, curses.color_pair(2) | (curses.A_REVERSE if is_selected else 0))
-        stdscr.addnstr(idx, date_pos + 23, ip.strip(), 15, curses.color_pair(3) | (curses.A_REVERSE if is_selected else 0))
-        stdscr.addnstr(idx, date_pos + 39, host.strip(), 20, curses.color_pair(7) | (curses.A_REVERSE if is_selected else 0))
-        stdscr.addnstr(idx, date_pos + 60, rule_id.strip(), 8, curses.color_pair(4) | (curses.A_REVERSE if is_selected else 0))
-        stdscr.addnstr(idx, date_pos + 69, attack_name.strip(), 35, curses.color_pair(1) | (curses.A_REVERSE if is_selected else 0))
+        start_x = max(0, (width - 128) // 2)  # Ensure start_x is not negative
+        stdscr.addnstr(idx, start_x, date.strip(), 22, curses.color_pair(2) | (curses.A_REVERSE if is_selected else 0))
+        stdscr.addnstr(idx, start_x + 23, ip.strip(), 15, curses.color_pair(3) | (curses.A_REVERSE if is_selected else 0))
+        stdscr.addnstr(idx, start_x + 39, host.strip(), 20, curses.color_pair(7) | (curses.A_REVERSE if is_selected else 0))
+        stdscr.addnstr(idx, start_x + 60, rule_id.strip(), 8, curses.color_pair(4) | (curses.A_REVERSE if is_selected else 0))
+        stdscr.addnstr(idx, start_x + 69, attack_name.strip(), 35, curses.color_pair(1) | (curses.A_REVERSE if is_selected else 0))
 
         # Apply appropriate color to the severity based on the mapping
         severity_color = SEVERITY_COLOR_MAP.get(severity, 5)
-        stdscr.addnstr(idx, date_pos + 105, severity.strip().center(9), 9, curses.color_pair(severity_color) | (curses.A_REVERSE if is_selected else 0))
-        stdscr.addnstr(idx, date_pos + 115, response_code.strip(), 9, curses.color_pair(5) | (curses.A_REVERSE if is_selected else 0))
+        stdscr.addnstr(idx, start_x + 105, severity.strip().center(9), 9, curses.color_pair(severity_color) | (curses.A_REVERSE if is_selected else 0))
+        stdscr.addnstr(idx, start_x + 115, response_code.strip().center(9), 9, curses.color_pair(5) | (curses.A_REVERSE if is_selected else 0))
 
     stdscr.refresh()
 
@@ -150,6 +152,9 @@ def show_detailed_entry(stdscr, entry):
 
     date, ip, host, rule_id, attack_name, severity, response_code, payload, info, additional_info = entry.split('|')
 
+    # Process Info section
+    info = info.replace('[', '').replace(']', '').strip()
+
     details = [
         ("Date", date.strip()),
         ("Remote Address", ip.strip()),  # Changed from IP Address to Remote Address
@@ -159,8 +164,7 @@ def show_detailed_entry(stdscr, entry):
         ("Severity", severity.strip()),
         ("Response Code", response_code.strip()),
         ("Payload", payload.strip()),
-        ("Info", info.strip()),
-        ("Additional Info", additional_info.strip())
+        ("Info", info.strip())
     ]
 
     max_y, max_x = stdscr.getmaxyx()
@@ -170,6 +174,18 @@ def show_detailed_entry(stdscr, entry):
         stdscr.addstr(idx * 3 + 2, 2, f"{title}:", curses.color_pair(1) | curses.A_BOLD)
         for i, line in enumerate(wrapped_lines):
             stdscr.addstr(idx * 3 + 3 + i, 4, line, curses.color_pair(5))
+
+    # Add margin above Additional Info
+    margin_idx = len(details) * 3 + 5  # Adding extra margin lines
+    stdscr.addstr(margin_idx, 2, " ", curses.color_pair(1))  # Clear space between sections
+
+    # Format and display Additional Info with each line as a new entry
+    stdscr.addstr(margin_idx + 2, 2, "Additional Info:", curses.color_pair(1) | curses.A_BOLD)
+    additional_info_lines = additional_info.split('\n')
+    for i, line in enumerate(additional_info_lines):
+        wrapped_lines = wrap_text(line, max_x - 4)
+        for j, wrapped_line in enumerate(wrapped_lines):
+            stdscr.addstr(margin_idx + 3 + i + j, 4, wrapped_line, curses.color_pair(5))  # Ensure extra margin above additional info
 
     stdscr.addstr(0, (max_x - len("Attack Details")) // 2, "Attack Details", curses.color_pair(1) | curses.A_BOLD)
     stdscr.addstr(max_y - 2, (max_x - len("Press <Left Arrow> to return")) // 2, "Press <Left Arrow> to return", curses.color_pair(1) | curses.A_BOLD)
@@ -181,94 +197,110 @@ def show_detailed_entry(stdscr, entry):
         if char in (curses.KEY_BACKSPACE, curses.KEY_LEFT, 127):  # Handle Backspace or Left Arrow key
             break
 
+# Function to draw the header
+def draw_header(stdscr, width):
+    start_x = max(0, (width - 128) // 2)  # Ensure start_x is not negative
+    stdscr.addstr(0, 2, "ModSentry 1.0", curses.color_pair(1) | curses.A_BOLD)  # Align to the left with a margin
+    stdscr.addstr(1, 2, "by Yodabytz", curses.color_pair(1) | curses.A_BOLD)    # Author name
+    stdscr.addstr(2, (width - len("ModSecurity Log Monitor (Press 'q' to quit)")) // 2, "ModSecurity Log Monitor (Press 'q' to quit)", curses.color_pair(1) | curses.A_BOLD)
+    stdscr.addstr(3, start_x, f"{'Date':^22} {'IP Address':^15} {'Host':^20} {'Rule ID':^8} {'Attack Name':^35} {'Severity':^9} {'Resp. Code':^9}", curses.color_pair(1) | curses.A_UNDERLINE)
+
 # Function to monitor the log file
 def monitor_log_file(stdscr, log_file_path):
     curses.curs_set(0)  # Hide cursor
     stdscr.nodelay(True)  # Non-blocking input
     init_colors()
 
+    height, width = stdscr.getmaxyx()
+
+    # Check terminal size
+    if width < MIN_WIDTH or height < MIN_HEIGHT:
+        stdscr.clear()
+        stdscr.addstr(0, 0, "Terminal window is too small to display ModSentry. Please resize and try again.", curses.color_pair(8) | curses.A_BOLD)
+        stdscr.refresh()
+        time.sleep(3)
+        return
+
     log_entries = []
     current_line = 0
     selected_line = 0
 
-    while True:
-        # Draw the static elements of the UI
-        stdscr.clear()
-        stdscr.border(0)
-        stdscr.addstr(0, (stdscr.getmaxyx()[1] - len("ModSentry 1.0")) // 2, "ModSentry 1.0", curses.color_pair(1) | curses.A_BOLD)
-        stdscr.addstr(1, (stdscr.getmaxyx()[1] - len("ModSecurity Log Monitor (Press 'q' to quit)")) // 2, "ModSecurity Log Monitor (Press 'q' to quit)", curses.color_pair(1) | curses.A_BOLD)
-        stdscr.addstr(2, (stdscr.getmaxyx()[1] - 128) // 2, f"{'Date':^22} {'IP Address':^15} {'Host':^20} {'Rule ID':^8} {'Attack Name':^35} {'Severity':^9} {'Resp. Code':^9}", curses.color_pair(1) | curses.A_UNDERLINE)
-        
-        try:
-            with open(log_file_path, 'r') as log_file:
-                # Read the file backwards to get the last 10 entries
-                lines = log_file.readlines()
-                buffer = ''
-                entries = []
+    with open(log_file_path, 'r') as log_file:
+        # Read the file backwards to get the last 10 entries
+        lines = log_file.readlines()
+        buffer = ''
+        entries = []
 
-                for line in reversed(lines):
-                    buffer = line + buffer
-                    if line.startswith("---") and "A--" in line:
-                        remote_date, remote_ip, host, rule_id, attack_name, severity, response_code, payload, info, additional_info = parse_log_entry(buffer)
-                        # Only append if there's a Rule ID and it's not in the ignore list
-                        if rule_id != 'N/A' and rule_id not in IGNORE_RULE_IDS:
-                            formatted_entry = format_entry(remote_date, remote_ip, host, rule_id, attack_name, severity, response_code, payload, info, additional_info)
-                            entries.append(formatted_entry)
-                        buffer = ''  # Clear buffer for the next entry
+        for line in reversed(lines):
+            buffer = line + buffer
+            if line.startswith("---") and "A--" in line:
+                remote_date, remote_ip, host, rule_id, attack_name, severity, response_code, payload, info, additional_info = parse_log_entry(buffer)
+                # Only append if there's a Rule ID and it's not in the ignore list
+                if rule_id != 'N/A' and rule_id not in IGNORE_RULE_IDS:
+                    formatted_entry = format_entry(remote_date, remote_ip, host, rule_id, attack_name, severity, response_code, payload, info, additional_info)
+                    entries.append(formatted_entry)
+                buffer = ''  # Clear buffer for the next entry
 
-                    if len(entries) >= 10:
-                        break
+            if len(entries) >= 10:
+                break
 
-                log_entries.extend(reversed(entries))  # Reverse to maintain the order
-                log_file.seek(0, os.SEEK_END)  # Move to the end of the file
+        log_entries.extend(reversed(entries))  # Reverse to maintain the order
+        log_file.seek(0, os.SEEK_END)  # Move to the end of the file
 
-                buffer = ''
-                while True:
-                    # Read only new lines
-                    lines = log_file.read()
-                    if lines:
-                        buffer += lines
-                        entries = buffer.split('---Z--\n')  # Split log entries by end marker
-                        buffer = entries[-1]  # Keep the last partial entry in buffer
+        buffer = ''
+        last_position = log_file.tell()  # Track the last position
+        while True:
+            # Clear only when drawing to prevent flicker
+            stdscr.erase()
+            stdscr.border(0)
+            draw_header(stdscr, width)
 
-                        for entry in entries[:-1]:
-                            remote_date, remote_ip, host, rule_id, attack_name, severity, response_code, payload, info, additional_info = parse_log_entry(entry)
-                            # Only append if there's a Rule ID and it's not in the ignore list
-                            if rule_id != 'N/A' and rule_id not in IGNORE_RULE_IDS:
-                                formatted_entry = format_entry(remote_date, remote_ip, host, rule_id, attack_name, severity, response_code, payload, info, additional_info)
-                                log_entries.append(formatted_entry)
-                                log_entries = log_entries[-1000:]  # Keep only the last 1000 entries
+            # Read only new lines
+            log_file.seek(last_position)
+            lines = log_file.read()
+            if lines:
+                buffer += lines
+                entries = buffer.split('---Z--\n')  # Split log entries by end marker
+                buffer = entries[-1]  # Keep the last partial entry in buffer
 
-                    # Automatically scroll if we are at the bottom of the list
-                    if current_line >= len(log_entries) - (stdscr.getmaxyx()[0] - 6):
-                        current_line = max(0, len(log_entries) - (stdscr.getmaxyx()[0] - 6))
+                for entry in entries[:-1]:
+                    remote_date, remote_ip, host, rule_id, attack_name, severity, response_code, payload, info, additional_info = parse_log_entry(entry)
+                    # Only append if there's a Rule ID and it's not in the ignore list
+                    if rule_id != 'N/A' and rule_id not in IGNORE_RULE_IDS:
+                        formatted_entry = format_entry(remote_date, remote_ip, host, rule_id, attack_name, severity, response_code, payload, info, additional_info)
+                        log_entries.append(formatted_entry)
+                        log_entries = log_entries[-1000:]  # Keep only the last 1000 entries
 
-                    # Display the last entries that fit the screen height
-                    display_log_entries(stdscr, log_entries, current_line, selected_line)
+            last_position = log_file.tell()  # Update the last position
 
-                    # Handle scrolling and quitting
-                    char = stdscr.getch()
-                    if char == ord('q'):
-                        return
-                    elif char == curses.KEY_UP and selected_line > 0:
-                        selected_line -= 1
-                        if selected_line < current_line:
-                            current_line -= 1
-                    elif char == curses.KEY_DOWN and selected_line < len(log_entries) - 1:
-                        selected_line += 1
-                        if selected_line >= current_line + (stdscr.getmaxyx()[0] - 6):
-                            current_line += 1
-                    elif char in (curses.KEY_ENTER, 10, 13):  # Handle Enter key
-                        show_detailed_entry(stdscr, log_entries[selected_line])
-                        break  # Refresh the main screen after returning from the details
+            # Automatically scroll if we are at the bottom of the list
+            if current_line >= len(log_entries) - (height - 7):
+                current_line = max(0, len(log_entries) - (height - 7))
 
-                    time.sleep(0.1)  # Reduce CPU usage
+            # Display the last entries that fit the screen height
+            display_log_entries(stdscr, log_entries, current_line, selected_line)
 
-        except FileNotFoundError:
-            stdscr.addstr(0, 0, f"Error: Log file {log_file_path} not found.", curses.color_pair(1))
-            stdscr.refresh()
-            time.sleep(3)
-            return
+            # Handle scrolling and quitting
+            char = stdscr.getch()
+            if char == ord('q'):
+                return
+            elif char == curses.KEY_UP and selected_line > 0:
+                selected_line -= 1
+                if selected_line < current_line:
+                    current_line -= 1
+            elif char == curses.KEY_DOWN and selected_line < len(log_entries) - 1:
+                selected_line += 1
+                if selected_line >= current_line + (height - 7):
+                    current_line += 1
+            elif char in (curses.KEY_ENTER, 10, 13):  # Handle Enter key
+                show_detailed_entry(stdscr, log_entries[selected_line])
+                stdscr.clear()  # Clear the screen when returning to refresh the main view
+                stdscr.border(0)
+                draw_header(stdscr, width)
+                log_file.seek(last_position)  # Ensure we continue from the correct position
+                continue  # Continue the loop to refresh the main screen
+
+            time.sleep(0.1)  # Reduce CPU usage
 
 def main():
     curses.wrapper(monitor_log_file, LOG_FILE_PATH)
