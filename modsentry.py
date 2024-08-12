@@ -9,7 +9,7 @@ import sys
 
 # Configuration Variables
 LOG_FILE_PATH = "/var/log/modsec_audit.log"  # Path to the log file
-IGNORE_RULE_IDS = {"12345", "67890", "953100"}  # Set of rule IDs to ignore (add your false positives here)
+IGNORE_RULE_IDS = {"12345", "67890", "953100", "920600", "930130"}  # Set of rule IDs to ignore (add your false positives here)
 MIN_WIDTH = 128  # Minimum width for the terminal
 MIN_HEIGHT = 24  # Minimum height for the terminal
 
@@ -66,53 +66,50 @@ def block_ip(ip):
     except subprocess.CalledProcessError as e:
         return f"Failed to block IP {ip}: {str(e)}"
 
-def parse_log_entry(entry):
-    """
-    Parse a single log entry using regular expressions to extract necessary fields.
-    Returns a tuple of parsed data or None if parsing fails.
-    """
+def unblock_ip(ip):
+    """Unblock the given IP address using iptables."""
     try:
-        # Use regex to extract necessary fields from the log entry
-        date_match = re.search(r'\[(\d{2}/\w{3}/\d{4}:\d{2}:\d{2}:\d{2} [+-]\d{4})\]', entry)
-        ip_match = re.search(r'---A--\n\[\d{2}/\w{3}/\d{4}:\d{2}:\d{2}:\d{2} [+-]\d{4}\] \S+ (\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})', entry)
-        host_match = re.search(r'Host: ([^\s]+)', entry)
-        rule_id_match = re.search(r'\[id "(\d+)"\]', entry)
-        attack_name_match = re.search(r'\[msg "(.*?)"( via [^"]+)?\]', entry)  # Remove "via" part
-        severity_match = re.search(r'\[severity "(\d+)"\]', entry)
-        response_code_match = re.search(r'HTTP/1.[01] (\d{3})', entry)
-        payload_match = re.search(r'---B--\n(.*?)\n---', entry, re.DOTALL)  # Payload extraction from section B
-        info_match = re.search(r'---H--\n(.*?)\n---', entry, re.DOTALL)     # Info extraction from section H
-        additional_info_match = re.search(r'---F--\n(.*?)\n---', entry, re.DOTALL)  # Additional info from section F
+        # Trim whitespace from the IP address
+        ip = ip.strip()
+        if is_ip_blocked(ip):
+            subprocess.run(['iptables', '-D', 'ModSentry', '-s', ip, '-j', 'DROP'], check=True)
+            return f"IP {ip} has been unblocked."
+        else:
+            return f"IP {ip} is not currently blocked."
+    except subprocess.CalledProcessError as e:
+        return f"Failed to unblock IP {ip}: {str(e)}"
 
-        # Extract values, fallback to 'N/A' if not found
-        remote_date = date_match.group(1) if date_match else 'N/A'
-        remote_ip = ip_match.group(1) if ip_match else 'N/A'  # Extract the IP address
-        host = host_match.group(1) if host_match else 'N/A'
-        rule_id = rule_id_match.group(1) if rule_id_match else 'N/A'
-        attack_name = attack_name_match.group(1) if attack_name_match else 'N/A'
-        severity = SEVERITY_MAP.get(severity_match.group(1), "N/A") if severity_match else 'N/A'
-        response_code = response_code_match.group(1) if response_code_match else 'N/A'
-        payload = escape_text(payload_match.group(1).strip()) if payload_match else 'N/A'
-        info = escape_text(info_match.group(1).strip()) if info_match else 'N/A'
-        additional_info = escape_text(additional_info_match.group(1).strip()) if additional_info_match else 'N/A'
+# Function to parse a single log entry
+def parse_log_entry(entry):
+    # Use regex to extract necessary fields from the log entry
+    date_match = re.search(r'\[(\d{2}/\w{3}/\d{4}:\d{2}:\d{2}:\d{2} [+-]\d{4})\]', entry)
+    # Regex to extract the IP address from Section A
+    ip_match = re.search(r'---A--\n\[\d{2}/\w{3}/\d{4}:\d{2}:\d{2}:\d{2} [+-]\d{4}\] \S+ (\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})', entry)
+    host_match = re.search(r'Host: ([^\s]+)', entry)
+    rule_id_match = re.search(r'\[id "(\d+)"\]', entry)
+    attack_name_match = re.search(r'\[msg "(.*?)"( via [^"]+)?\]', entry)  # Remove "via" part
+    severity_match = re.search(r'\[severity "(\d+)"\]', entry)
+    response_code_match = re.search(r'HTTP/1.[01] (\d{3})', entry)
+    payload_match = re.search(r'---B--\n(.*?)\n---', entry, re.DOTALL)  # Payload extraction from section B
+    info_match = re.search(r'---H--\n(.*?)\n---', entry, re.DOTALL)     # Info extraction from section H
+    additional_info_match = re.search(r'---F--\n(.*?)\n---', entry, re.DOTALL)  # Additional info from section F
 
-        # Ensure all values are properly escaped to handle unexpected characters
-        return remote_date, remote_ip, host, rule_id, attack_name, severity, response_code, payload, info, additional_info
-    except Exception as e:
-        # Log the error for debugging purposes
-        print(f"Error parsing log entry: {e}")
-        return None
+    # Extract values, fallback to 'N/A' if not found
+    remote_date = date_match.group(1) if date_match else 'N/A'
+    remote_ip = ip_match.group(1) if ip_match else 'N/A'  # Extract the IP address
+    host = host_match.group(1) if host_match else 'N/A'
+    rule_id = rule_id_match.group(1) if rule_id_match else 'N/A'
+    attack_name = attack_name_match.group(1) if attack_name_match else 'N/A'
+    severity = SEVERITY_MAP.get(severity_match.group(1), "N/A") if severity_match else 'N/A'
+    response_code = response_code_match.group(1) if response_code_match else 'N/A'
+    payload = payload_match.group(1).strip() if payload_match else 'N/A'
+    info = info_match.group(1).strip() if info_match else 'N/A'
+    additional_info = additional_info_match.group(1).strip() if additional_info_match else 'N/A'
 
-def escape_text(text):
-    """
-    Escape special characters in text to ensure proper display and avoid splitting errors.
-    """
-    return text.replace('\n', ' ').replace('\r', ' ').replace('\t', ' ').replace('|', ' ')
+    return remote_date, remote_ip, host, rule_id, attack_name, severity, response_code, payload, info, additional_info
 
+# Function to display log entries with curses
 def display_log_entries(stdscr, log_entries, current_line, selected_line, blocked_ips):
-    """
-    Display log entries in the curses window with proper formatting and coloring.
-    """
     height, width = stdscr.getmaxyx()
 
     # Display log entries with colors for each column
@@ -154,20 +151,16 @@ def display_log_entries(stdscr, log_entries, current_line, selected_line, blocke
         stdscr.addnstr(idx, start_x + 115, response_code.strip().center(9), 9, curses.color_pair(5) | (curses.A_REVERSE if is_selected else 0))
 
     # Add the block IP message at the bottom
-    stdscr.addstr(height - 3, 2, "Enter: More Info | 'b': Block IP | 'q': Quit", curses.color_pair(1))
+    stdscr.addstr(height - 3, 2, "Enter: More Info | 'b': Block IP | 'd': Unblock IP | 'q': Quit | ● Blocked IP", curses.color_pair(1))
     stdscr.refresh()
 
+# Function to format a log entry
 def format_entry(remote_date, remote_ip, host, rule_id, attack_name, severity, response_code, payload, info, additional_info):
-    """
-    Format a log entry for display with fixed-width columns.
-    """
     # Concatenate fields into a string with fixed-width columns using '|' as a separator
     return f"{remote_date:<22.22}|{remote_ip:<15.15}|{host:<20.20}|{rule_id:<8.8}|{attack_name:<35.35}|{severity:<9.9}|{response_code:<9.9}|{payload}|{info}|{additional_info}"
 
+# Function to initialize colors
 def init_colors():
-    """
-    Initialize color pairs for use in curses.
-    """
     curses.start_color()
     curses.init_pair(1, curses.COLOR_CYAN, curses.COLOR_BLACK)    # Title and Attack Name
     curses.init_pair(2, curses.COLOR_GREEN, curses.COLOR_BLACK)   # Date
@@ -184,10 +177,8 @@ def init_colors():
     curses.init_pair(11, curses.COLOR_GREEN, curses.COLOR_BLACK)  # Bright Green
     curses.init_pair(12, curses.COLOR_CYAN, curses.COLOR_BLACK)   # Bright Cyan
 
+# Function to wrap text to fit within the screen width
 def wrap_text(text, width):
-    """
-    Wrap text to fit within the specified width.
-    """
     words = text.split()
     lines = []
     current_line = []
@@ -207,21 +198,12 @@ def wrap_text(text, width):
 
     return lines
 
+# Function to show detailed information of a selected entry
 def show_detailed_entry(stdscr, entry):
-    """
-    Display detailed information about a selected log entry.
-    """
     stdscr.clear()
     stdscr.border(0)
 
-    try:
-        date, ip, host, rule_id, attack_name, severity, response_code, payload, info, additional_info = entry.split('|')
-    except ValueError as e:
-        # Display an error message if entry cannot be split correctly
-        stdscr.addstr(2, 2, f"Error displaying entry: {str(e)}", curses.color_pair(8))
-        stdscr.refresh()
-        time.sleep(3)
-        return
+    date, ip, host, rule_id, attack_name, severity, response_code, payload, info, additional_info = entry.split('|')
 
     # Process Info section
     info = info.replace('[', '').replace(']', '').strip()
@@ -281,10 +263,8 @@ def show_detailed_entry(stdscr, entry):
         elif char == curses.KEY_DOWN and current_line < max_scroll:
             current_line += 1
 
+# Function to show a popup confirmation window
 def show_confirmation_window(stdscr, message):
-    """
-    Display a confirmation window with a given message.
-    """
     max_y, max_x = stdscr.getmaxyx()
     win_width = 50
     win_height = 5
@@ -302,10 +282,8 @@ def show_confirmation_window(stdscr, message):
         elif char in (ord('n'), ord('N')):
             return False
 
+# Function to show a done message window
 def show_done_window(stdscr, message):
-    """
-    Display a done message window.
-    """
     max_y, max_x = stdscr.getmaxyx()
     win_width = len(message) + 4
     win_height = 3
@@ -316,20 +294,16 @@ def show_done_window(stdscr, message):
     win.refresh()
     time.sleep(3)
 
+# Function to draw the header
 def draw_header(stdscr, width):
-    """
-    Draw the header for the main display.
-    """
     start_x = max(0, (width - 128) // 2)  # Ensure start_x is not negative
     stdscr.addstr(0, 2, "ModSentry 1.0", curses.color_pair(1) | curses.A_BOLD)  # Align to the left with a margin
     stdscr.addstr(1, 2, "by Yodabytz", curses.color_pair(1) | curses.A_BOLD)    # Author name
     stdscr.addstr(2, (width - len("ModSecurity Log Monitor (Press 'q' to quit)")) // 2, "ModSecurity Log Monitor (Press 'q' to quit)", curses.color_pair(1) | curses.A_BOLD)
     stdscr.addstr(3, start_x, f"{'Date':^22} {'IP Address':^15} {'Host':^20} {'Rule ID':^8} {'Attack Name':^35} {'Severity':^9} {'Resp. Code':^9}", curses.color_pair(1) | curses.A_UNDERLINE)
 
+# Function to monitor the log file
 def monitor_log_file(stdscr, log_file_path):
-    """
-    Main function to monitor the log file and display entries.
-    """
     curses.curs_set(0)  # Hide cursor
     stdscr.nodelay(True)  # Non-blocking input
     init_colors()
@@ -359,13 +333,11 @@ def monitor_log_file(stdscr, log_file_path):
         for line in reversed(lines):
             buffer = line + buffer
             if line.startswith("---") and "A--" in line:
-                parsed_entry = parse_log_entry(buffer)
-                if parsed_entry:
-                    remote_date, remote_ip, host, rule_id, attack_name, severity, response_code, payload, info, additional_info = parsed_entry
-                    # Only append if there's a Rule ID and it's not in the ignore list
-                    if rule_id != 'N/A' and rule_id not in IGNORE_RULE_IDS:
-                        formatted_entry = format_entry(remote_date, remote_ip, host, rule_id, attack_name, severity, response_code, payload, info, additional_info)
-                        entries.append(formatted_entry)
+                remote_date, remote_ip, host, rule_id, attack_name, severity, response_code, payload, info, additional_info = parse_log_entry(buffer)
+                # Only append if there's a Rule ID and it's not in the ignore list
+                if rule_id != 'N/A' and rule_id not in IGNORE_RULE_IDS:
+                    formatted_entry = format_entry(remote_date, remote_ip, host, rule_id, attack_name, severity, response_code, payload, info, additional_info)
+                    entries.append(formatted_entry)
                 buffer = ''  # Clear buffer for the next entry
 
             if len(entries) >= 10:
@@ -391,14 +363,12 @@ def monitor_log_file(stdscr, log_file_path):
                 buffer = entries[-1]  # Keep the last partial entry in buffer
 
                 for entry in entries[:-1]:
-                    parsed_entry = parse_log_entry(entry)
-                    if parsed_entry:
-                        remote_date, remote_ip, host, rule_id, attack_name, severity, response_code, payload, info, additional_info = parsed_entry
-                        # Only append if there's a Rule ID and it's not in the ignore list
-                        if rule_id != 'N/A' and rule_id not in IGNORE_RULE_IDS:
-                            formatted_entry = format_entry(remote_date, remote_ip, host, rule_id, attack_name, severity, response_code, payload, info, additional_info)
-                            log_entries.append(formatted_entry)
-                            log_entries = log_entries[-1000:]  # Keep only the last 1000 entries
+                    remote_date, remote_ip, host, rule_id, attack_name, severity, response_code, payload, info, additional_info = parse_log_entry(entry)
+                    # Only append if there's a Rule ID and it's not in the ignore list
+                    if rule_id != 'N/A' and rule_id not in IGNORE_RULE_IDS:
+                        formatted_entry = format_entry(remote_date, remote_ip, host, rule_id, attack_name, severity, response_code, payload, info, additional_info)
+                        log_entries.append(formatted_entry)
+                        log_entries = log_entries[-1000:]  # Keep only the last 1000 entries
 
             last_position = log_file.tell()  # Update the last position
 
@@ -438,6 +408,20 @@ def monitor_log_file(stdscr, log_file_path):
                     if "has been blocked" in message:
                         show_done_window(stdscr, "Done!")
 
+            elif char == ord('d'):  # Handle unblock command
+                _, ip, _, _, _, _, _, _, _, _ = log_entries[selected_line].split('|')
+                if show_confirmation_window(stdscr, f"Unblock IP {ip.strip()}?"):
+                    stdscr.addstr(height - 3, 2, f"Unblocking IP {ip}...                        ", curses.color_pair(1))
+                    stdscr.refresh()
+                    # Run the unblock command
+                    message = unblock_ip(ip)
+                    stdscr.addstr(height - 3, 2, message + " Press any key to continue.", curses.color_pair(1))
+                    stdscr.refresh()
+                    stdscr.getch()
+                    # Show "Done!" message if successful
+                    if "has been unblocked" in message:
+                        show_done_window(stdscr, "Done!")
+
             elif char in (curses.KEY_ENTER, 10, 13):  # Handle Enter key
                 show_detailed_entry(stdscr, log_entries[selected_line])
                 stdscr.erase()  # Use erase to clear without flicker
@@ -449,9 +433,6 @@ def monitor_log_file(stdscr, log_file_path):
             time.sleep(0.1)  # Reduce CPU usage
 
 def display_help():
-    """
-    Display help message for command-line usage.
-    """
     help_message = """
 ModSentry - ModSecurity Log Monitor
 
@@ -464,6 +445,7 @@ Options:
 Controls:
   Enter  Show more info about the selected entry
   b      Block the IP address of the selected entry
+  d      Unblock the IP address of the selected entry
   q      Quit the application
 
 Description:
@@ -477,9 +459,6 @@ Requirements:
     print(help_message)
 
 def main():
-    """
-    Main entry point for the script.
-    """
     # Check for command line arguments
     if len(sys.argv) > 1:
         if sys.argv[1] in ('-h', '--help'):
