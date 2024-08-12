@@ -50,6 +50,8 @@ sudo modsentry -h
 ```
 Enter: Show more info about the selected entry.
 b: Block the IP address of the selected entry.
+d: Unblock the IP address of the selected entry
+●: Blocked IP
 q: Quit the application.
 Up/Down Arrows: Navigate through log entries.
 Left Arrow/Backspace: Return to the main screen from a detailed view.
