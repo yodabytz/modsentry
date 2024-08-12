@@ -16,10 +16,10 @@ ModSentry is a real-time log monitoring tool for analyzing security events from 
 
 These instructions will help you set up and run ModSentry on your local machine for development and testing.
 
-## Prerequisites
+## Requirements
 
 - Python 3.x
-- `curses` library (often included with Python on Unix-based systems)
+- `curses` library (pre-installed with Python on most Unix-based systems)
 - Root or sudo access for iptables management
 
 ## Installation
