@@ -19,6 +19,7 @@ These instructions will help you set up and run ModSentry on your local machine 
 ## Requirements
 
 - Python 3.x
+- whois
 - `curses` library (pre-installed with Python on most Unix-based systems)
 - Root or sudo access for iptables management
 
