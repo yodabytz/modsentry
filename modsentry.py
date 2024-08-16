@@ -9,7 +9,7 @@ import sys
 
 # Configuration Variables
 LOG_FILE_PATH = "/var/log/modsec_audit.log"  # Path to the log file
-IGNORE_RULE_IDS = {"12345", "67890", "953100", "920600", "930130"}  # Set of rule IDs to ignore (add your false positives here)
+IGNORE_RULE_IDS = {"12345", "67890", "953100"}  # Set of rule IDs to ignore (add your false positives here)
 MIN_WIDTH = 128  # Minimum width for the terminal
 MIN_HEIGHT = 24  # Minimum height for the terminal
 
@@ -75,7 +75,7 @@ def unblock_ip(ip):
             subprocess.run(['iptables', '-D', 'ModSentry', '-s', ip, '-j', 'DROP'], check=True)
             return f"IP {ip} has been unblocked."
         else:
-            return f"IP {ip} is not currently blocked."
+            return f"IP {ip} is not blocked."
     except subprocess.CalledProcessError as e:
         return f"Failed to unblock IP {ip}: {str(e)}"
 
@@ -140,15 +140,15 @@ def display_log_entries(stdscr, log_entries, current_line, selected_line, blocke
 
         # Display the log entry
         stdscr.addnstr(idx, start_x, date.strip(), 22, curses.color_pair(2) | (curses.A_REVERSE if is_selected else 0))
-        stdscr.addnstr(idx, start_x + 23, ip.strip(), 15, curses.color_pair(3) | (curses.A_REVERSE if is_selected else 0))
-        stdscr.addnstr(idx, start_x + 39, host.strip(), 20, curses.color_pair(7) | (curses.A_REVERSE if is_selected else 0))
+        stdscr.addnstr(idx, start_x + 23, ip.strip(), 16, curses.color_pair(3) | (curses.A_REVERSE if is_selected else 0))
+        stdscr.addnstr(idx, start_x + 40, host.strip(), 20, curses.color_pair(7) | (curses.A_REVERSE if is_selected else 0))
         stdscr.addnstr(idx, start_x + 60, rule_id.strip(), 8, curses.color_pair(4) | (curses.A_REVERSE if is_selected else 0))
-        stdscr.addnstr(idx, start_x + 69, attack_name.strip(), 35, curses.color_pair(1) | (curses.A_REVERSE if is_selected else 0))
+        stdscr.addnstr(idx, start_x + 69, attack_name.strip(), 40, curses.color_pair(1) | (curses.A_REVERSE if is_selected else 0))
 
         # Apply appropriate color to the severity based on the mapping
         severity_color = SEVERITY_COLOR_MAP.get(severity, 5)
-        stdscr.addnstr(idx, start_x + 105, severity.strip().center(9), 9, curses.color_pair(severity_color) | (curses.A_REVERSE if is_selected else 0))
-        stdscr.addnstr(idx, start_x + 115, response_code.strip().center(9), 9, curses.color_pair(5) | (curses.A_REVERSE if is_selected else 0))
+        stdscr.addnstr(idx, start_x + 110, severity.strip().center(9), 9, curses.color_pair(severity_color) | (curses.A_REVERSE if is_selected else 0))
+        stdscr.addnstr(idx, start_x + 120, response_code.strip().center(9), 9, curses.color_pair(5) | (curses.A_REVERSE if is_selected else 0))
 
     # Add the block IP message at the bottom
     stdscr.addstr(height - 3, 2, "Enter: More Info | 'b': Block IP | 'd': Unblock IP | 'q': Quit | ● Blocked IP", curses.color_pair(1))
@@ -157,7 +157,7 @@ def display_log_entries(stdscr, log_entries, current_line, selected_line, blocke
 # Function to format a log entry
 def format_entry(remote_date, remote_ip, host, rule_id, attack_name, severity, response_code, payload, info, additional_info):
     # Concatenate fields into a string with fixed-width columns using '|' as a separator
-    return f"{remote_date:<22.22}|{remote_ip:<15.15}|{host:<20.20}|{rule_id:<8.8}|{attack_name:<35.35}|{severity:<9.9}|{response_code:<9.9}|{payload}|{info}|{additional_info}"
+    return f"{remote_date:<22}|{remote_ip:<16}|{host:<20}|{rule_id:<8}|{attack_name:<40}|{severity:<9}|{response_code:<9}|{payload[:20]}|{info[:20]}|{additional_info[:20]}"
 
 # Function to initialize colors
 def init_colors():
@@ -300,7 +300,7 @@ def draw_header(stdscr, width):
     stdscr.addstr(0, 2, "ModSentry 1.0", curses.color_pair(1) | curses.A_BOLD)  # Align to the left with a margin
     stdscr.addstr(1, 2, "by Yodabytz", curses.color_pair(1) | curses.A_BOLD)    # Author name
     stdscr.addstr(2, (width - len("ModSecurity Log Monitor (Press 'q' to quit)")) // 2, "ModSecurity Log Monitor (Press 'q' to quit)", curses.color_pair(1) | curses.A_BOLD)
-    stdscr.addstr(3, start_x, f"{'Date':^22} {'IP Address':^15} {'Host':^20} {'Rule ID':^8} {'Attack Name':^35} {'Severity':^9} {'Resp. Code':^9}", curses.color_pair(1) | curses.A_UNDERLINE)
+    stdscr.addstr(3, start_x, f"{'Date':^22} {'IP Address':^16} {'Host':^20} {'Rule ID':^8} {'Attack Name':^40} {'Severity':^9} {'Resp. Code':^9}", curses.color_pair(1) | curses.A_UNDERLINE)
 
 # Function to monitor the log file
 def monitor_log_file(stdscr, log_file_path):
@@ -372,10 +372,6 @@ def monitor_log_file(stdscr, log_file_path):
 
             last_position = log_file.tell()  # Update the last position
 
-            # Automatically scroll if we are at the bottom of the list
-            if current_line >= len(log_entries) - (height - 8):
-                current_line = max(0, len(log_entries) - (height - 8))
-
             # Fetch blocked IPs for red dot indication
             blocked_ips = {line.split()[3] for line in subprocess.run(['iptables', '-L', 'ModSentry', '-n'], capture_output=True, text=True).stdout.splitlines() if line.startswith("DROP")}
 
@@ -407,7 +403,7 @@ def monitor_log_file(stdscr, log_file_path):
                     # Show "Done!" message if successful
                     if "has been blocked" in message:
                         show_done_window(stdscr, "Done!")
-
+            
             elif char == ord('d'):  # Handle unblock command
                 _, ip, _, _, _, _, _, _, _, _ = log_entries[selected_line].split('|')
                 if show_confirmation_window(stdscr, f"Unblock IP {ip.strip()}?"):
