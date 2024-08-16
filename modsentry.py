@@ -6,12 +6,14 @@ import curses
 import os
 import subprocess
 import sys
+import whois
 
 # Configuration Variables
 LOG_FILE_PATH = "/var/log/modsec_audit.log"  # Path to the log file
 IGNORE_RULE_IDS = {"12345", "67890", "953100"}  # Set of rule IDs to ignore (add your false positives here)
 MIN_WIDTH = 128  # Minimum width for the terminal
 MIN_HEIGHT = 24  # Minimum height for the terminal
+MAX_ENTRIES = 200  # Maximum number of entries to remember
 
 # Mapping of severity numbers to descriptions
 SEVERITY_MAP = {
@@ -36,6 +38,24 @@ SEVERITY_COLOR_MAP = {
     "Info": 11,     # Bright Green
     "Debug": 12     # Bright Cyan
 }
+
+def get_whois_info(ip_address):
+    """Fetch Whois information for a given IP address and format it."""
+    try:
+        w = whois.whois(ip_address)
+        whois_info = []
+        for key, value in w.items():
+            if isinstance(value, list):
+                value = ", ".join(value)
+            whois_info.append(f"{key}: {value}")
+        return "\n".join(whois_info)
+    except Exception as e:
+        # Fallback to running the whois command directly if there's an issue
+        try:
+            result = subprocess.run(['whois', ip_address], capture_output=True, text=True)
+            return result.stdout.strip()
+        except Exception as fallback_e:
+            return f"Whois lookup failed: {str(fallback_e)}"
 
 def check_iptables_chain():
     """Check if the ModSentry iptables chain exists and create it if not."""
@@ -185,13 +205,13 @@ def wrap_text(text, width):
     current_length = 0
 
     for word in words:
-        if current_length + len(word) + len(current_line) > width:
+        if current_length + len(word + " ") > width:
             lines.append(' '.join(current_line))
             current_line = [word]
             current_length = len(word)
         else:
             current_line.append(word)
-            current_length += len(word)
+            current_length += len(word) + 1
 
     if current_line:
         lines.append(' '.join(current_line))
@@ -208,6 +228,9 @@ def show_detailed_entry(stdscr, entry):
     # Process Info section
     info = info.replace('[', '').replace(']', '').strip()
 
+    # Fetch whois information
+    whois_info = get_whois_info(ip.strip())
+
     details = [
         ("Date", date.strip()),
         ("Remote Address", ip.strip()),  # Changed from IP Address to Remote Address
@@ -217,7 +240,7 @@ def show_detailed_entry(stdscr, entry):
         ("Severity", severity.strip()),
         ("Response Code", response_code.strip()),
         ("Payload", payload.strip()),
-        ("Info", info.strip())
+        ("Info", info.strip()),
     ]
 
     max_y, max_x = stdscr.getmaxyx()
@@ -237,6 +260,16 @@ def show_detailed_entry(stdscr, entry):
     lines.append("Additional Info:")
     additional_info_lines = additional_info.split('\n')
     for line in additional_info_lines:
+        wrapped_lines = wrap_text(line, max_x - 4)
+        lines.extend(wrapped_lines)
+
+    # Add a space before Whois info
+    lines.append("")
+
+    # Add Whois Info
+    lines.append("Whois:")
+    whois_lines = whois_info.split('\n')
+    for line in whois_lines:
         wrapped_lines = wrap_text(line, max_x - 4)
         lines.extend(wrapped_lines)
 
@@ -368,7 +401,11 @@ def monitor_log_file(stdscr, log_file_path):
                     if rule_id != 'N/A' and rule_id not in IGNORE_RULE_IDS:
                         formatted_entry = format_entry(remote_date, remote_ip, host, rule_id, attack_name, severity, response_code, payload, info, additional_info)
                         log_entries.append(formatted_entry)
-                        log_entries = log_entries[-1000:]  # Keep only the last 1000 entries
+                        log_entries = log_entries[-MAX_ENTRIES:]  # Keep only the last MAX_ENTRIES entries
+
+                # Auto-scroll to the bottom
+                current_line = max(0, len(log_entries) - (height - 8))
+                selected_line = len(log_entries) - 1
 
             last_position = log_file.tell()  # Update the last position
 
