@@ -56,3 +56,6 @@ q: Quit the application.
 Up/Down Arrows: Navigate through log entries.
 Left Arrow/Backspace: Return to the main screen from a detailed view.
 ```
+## License
+
+This project is licensed under the MIT License. See the [LICENSE](./LICENSE) file for more details.
