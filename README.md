@@ -5,7 +5,7 @@ ModSentry is a real-time log monitoring tool for analyzing security events from 
 ## Table of Contents
 
 - [Getting Started](#getting-started)
-- [Prerequisites](#prerequisites)
+- [Requirements](#Requirements)
 - [Installation](#installation)
 - [Features](#features)
 - [Usage](#usage)
