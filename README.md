@@ -1,6 +1,6 @@
 ## ModSentry 1.0
 
-ModSentry is a real-time log monitoring tool for analyzing security events from ModSecurity logs. It provides an intuitive terminal interface to track alerts and highlight critical incidents. For this script to work, ModSecurity must be set to Serial logging.
+ModSentry is a real-time log monitoring tool for analyzing security events from ModSecurity logs. It provides an intuitive terminal interface to track alerts and highlight critical incidents. IP addresses can be blocked or unblocked using `iptables` directly from the interface. For this script to work, ModSecurity must be set to Serial logging.
 
 ## Table of Contents
 
