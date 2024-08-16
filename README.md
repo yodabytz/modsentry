@@ -33,12 +33,14 @@ cd modsentry
 sudo cp modsentry.py /usr/bin/modsentry
 ```
 ## Features
-Real-time Monitoring: Automatically updates to display new log entries.
-Color-Coded Alerts: Quickly identify critical issues with color-coded severity levels.
-IP Blocking: Block suspicious IP addresses directly from the interface using iptables.
-Popup Confirmation: Confirmation dialogs for blocking IPs and successful actions.
-Scrollable Interface: Navigate through logs and detailed views with ease.
-Help Command: View usage instructions and controls via the -h switch.
+
+- Real-time Monitoring: Automatically updates to display new log entries.
+- Color-Coded Alerts: Quickly identify critical issues with color-coded severity levels.
+- IP Blocking: Block suspicious IP addresses directly from the interface using iptables.
+- Popup Confirmation: Confirmation dialogs for blocking IPs and successful actions.
+- Scrollable Interface: Navigate through logs and detailed views with ease.
+- Whois Information: Fetch detailed Whois information for IP addresses.
+- Help Command: View usage instructions and controls via the `-h` switch.
 
 ## Usage
 Run the application with the following command:
@@ -51,7 +53,7 @@ sudo modsentry -h
 Enter: Show more info about the selected entry.
 b: Block the IP address of the selected entry.
 d: Unblock the IP address of the selected entry
-●: Blocked IP
+●: Indicates a Blocked IP
 q: Quit the application.
 Up/Down Arrows: Navigate through log entries.
 Left Arrow/Backspace: Return to the main screen from a detailed view.
