@@ -357,7 +357,7 @@ def monitor_log_file(stdscr, log_file_path):
 
     check_iptables_chain()  # Ensure the ModSentry chain is ready
 
-    with open(log_file_path, 'r') as log_file:
+    with open(log_file_path, 'r', encoding='latin1') as log_file:
         # Read the file backwards to get the last 10 entries
         lines = log_file.readlines()
         buffer = ''
