@@ -7,10 +7,11 @@ import os
 import subprocess
 import sys
 import whois
+import select
 
 # Configuration Variables
 LOG_FILE_PATH = "/var/log/modsec_audit.log"  # Path to the log file
-IGNORE_RULE_IDS = {"12345", "67890", "953100"}  # Set of rule IDs to ignore (add your false positives here)
+IGNORE_RULE_IDS = {"930130", "941100", "933120", "12345", "67890", "953100"}  # Set of rule IDs to ignore
 MIN_WIDTH = 128  # Minimum width for the terminal
 MIN_HEIGHT = 24  # Minimum height for the terminal
 MAX_ENTRIES = 200  # Maximum number of entries to remember
@@ -99,36 +100,49 @@ def unblock_ip(ip):
     except subprocess.CalledProcessError as e:
         return f"Failed to unblock IP {ip}: {str(e)}"
 
-# Function to parse a single log entry
 def parse_log_entry(entry):
-    # Use regex to extract necessary fields from the log entry
-    date_match = re.search(r'\[(\d{2}/\w{3}/\d{4}:\d{2}:\d{2}:\d{2} [+-]\d{4})\]', entry)
-    # Regex to extract the IP address from Section A
-    ip_match = re.search(r'---A--\n\[\d{2}/\w{3}/\d{4}:\d{2}:\d{2}:\d{2} [+-]\d{4}\] \S+ (\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})', entry)
-    host_match = re.search(r'Host: ([^\s]+)', entry)
-    rule_id_match = re.search(r'\[id "(\d+)"\]', entry)
-    attack_name_match = re.search(r'\[msg "(.*?)"( via [^"]+)?\]', entry)  # Remove "via" part
-    severity_match = re.search(r'\[severity "(\d+)"\]', entry)
-    response_code_match = re.search(r'HTTP/1.[01] (\d{3})', entry)
-    payload_match = re.search(r'---B--\n(.*?)\n---', entry, re.DOTALL)  # Payload extraction from section B
-    info_match = re.search(r'---H--\n(.*?)\n---', entry, re.DOTALL)     # Info extraction from section H
-    additional_info_match = re.search(r'---F--\n(.*?)\n---', entry, re.DOTALL)  # Additional info from section F
-
-    # Extract values, fallback to 'N/A' if not found
+    # Extract the date from section A
+    date_match = re.search(r'^---.*?---A--\n\[(.*?)\]', entry, re.MULTILINE)
     remote_date = date_match.group(1) if date_match else 'N/A'
-    remote_ip = ip_match.group(1) if ip_match else 'N/A'  # Extract the IP address
-    host = host_match.group(1) if host_match else 'N/A'
+
+    # Extract the remote IP from section A
+    ip_match = re.search(r'^---.*?---A--\n\[.*?\]\s+\S+\s+(\d{1,3}(?:\.\d{1,3}){3})', entry, re.MULTILINE)
+    remote_ip = ip_match.group(1) if ip_match else 'N/A'
+
+    # Extract host from section B
+    host_match = re.search(r'^Host:\s*(.+)$', entry, re.MULTILINE)
+    host = host_match.group(1).strip() if host_match else 'N/A'
+
+    # Extract rule ID from section H
+    rule_id_match = re.search(r'\[id "(\d+)"\]', entry)
     rule_id = rule_id_match.group(1) if rule_id_match else 'N/A'
+
+    # Extract attack name from section H
+    attack_name_match = re.search(r'\[msg "(.*?)"\]', entry)
     attack_name = attack_name_match.group(1) if attack_name_match else 'N/A'
+
+    # Extract severity from section H
+    severity_match = re.search(r'\[severity "(\d+)"\]', entry)
     severity = SEVERITY_MAP.get(severity_match.group(1), "N/A") if severity_match else 'N/A'
+
+    # Extract response code from section F
+    response_code_match = re.search(r'^---.*?---F--\nHTTP/\d\.\d\s+(\d{3})', entry, re.MULTILINE)
     response_code = response_code_match.group(1) if response_code_match else 'N/A'
+
+    # Extract payload from section B (the request line)
+    payload_match = re.search(r'^---.*?---B--\n(.*?)\n', entry, re.MULTILINE)
     payload = payload_match.group(1).strip() if payload_match else 'N/A'
+
+    # Extract info from section H
+    info_match = re.search(r'^---.*?---H--\n(.*?)\n---', entry, re.MULTILINE | re.DOTALL)
     info = info_match.group(1).strip() if info_match else 'N/A'
+
+    # Additional info from section E or elsewhere
+    additional_info_match = re.search(r'^---.*?---E--\n(.*?)\n---', entry, re.MULTILINE | re.DOTALL)
     additional_info = additional_info_match.group(1).strip() if additional_info_match else 'N/A'
 
     return remote_date, remote_ip, host, rule_id, attack_name, severity, response_code, payload, info, additional_info
 
-# Function to display log entries with curses
 def display_log_entries(stdscr, log_entries, current_line, selected_line, blocked_ips):
     height, width = stdscr.getmaxyx()
 
@@ -146,14 +160,14 @@ def display_log_entries(stdscr, log_entries, current_line, selected_line, blocke
         date, ip, host, rule_id, attack_name, severity, response_code, _, _, _ = parts
 
         # Determine if this line is the currently selected one
-        is_selected = idx - 4 == selected_line
+        is_selected = current_line + idx - 4 == selected_line
 
         # Determine if the IP is blocked
         is_blocked = ip.strip() in blocked_ips
 
         # Calculate positions to center the data
         start_x = max(0, (width - 128) // 2)  # Ensure start_x is not negative
-        
+
         # Add a red dot for blocked IPs
         if is_blocked:
             stdscr.addstr(idx, start_x - 2, '●', curses.color_pair(8))  # Bright Red dot
@@ -166,7 +180,7 @@ def display_log_entries(stdscr, log_entries, current_line, selected_line, blocke
         stdscr.addnstr(idx, start_x + 69, attack_name.strip(), 40, curses.color_pair(1) | (curses.A_REVERSE if is_selected else 0))
 
         # Apply appropriate color to the severity based on the mapping
-        severity_color = SEVERITY_COLOR_MAP.get(severity, 5)
+        severity_color = SEVERITY_COLOR_MAP.get(severity.strip(), 5)
         stdscr.addnstr(idx, start_x + 110, severity.strip().center(9), 9, curses.color_pair(severity_color) | (curses.A_REVERSE if is_selected else 0))
         stdscr.addnstr(idx, start_x + 120, response_code.strip().center(9), 9, curses.color_pair(5) | (curses.A_REVERSE if is_selected else 0))
 
@@ -174,30 +188,28 @@ def display_log_entries(stdscr, log_entries, current_line, selected_line, blocke
     stdscr.addstr(height - 3, 2, "Enter: More Info | 'b': Block IP | 'd': Unblock IP | 'q': Quit | ● Blocked IP", curses.color_pair(1))
     stdscr.refresh()
 
-# Function to format a log entry
 def format_entry(remote_date, remote_ip, host, rule_id, attack_name, severity, response_code, payload, info, additional_info):
     # Concatenate fields into a string with fixed-width columns using '|' as a separator
     return f"{remote_date:<22}|{remote_ip:<16}|{host:<20}|{rule_id:<8}|{attack_name:<40}|{severity:<9}|{response_code:<9}|{payload[:20]}|{info[:20]}|{additional_info[:20]}"
 
-# Function to initialize colors
 def init_colors():
     curses.start_color()
-    curses.init_pair(1, curses.COLOR_CYAN, curses.COLOR_BLACK)    # Title and Attack Name
-    curses.init_pair(2, curses.COLOR_GREEN, curses.COLOR_BLACK)   # Date
-    curses.init_pair(3, curses.COLOR_YELLOW, curses.COLOR_BLACK)  # IP Address
-    curses.init_pair(4, curses.COLOR_WHITE, curses.COLOR_BLACK)   # Rule ID
-    curses.init_pair(5, curses.COLOR_WHITE, curses.COLOR_BLACK)   # Response Code
-    curses.init_pair(6, curses.COLOR_BLUE, curses.COLOR_BLACK)    # Severity
-    curses.init_pair(7, curses.COLOR_YELLOW, curses.COLOR_BLACK)  # Host (Domain Name)
+    curses.use_default_colors()
+    curses.init_pair(1, curses.COLOR_CYAN, -1)    # Title and Attack Name
+    curses.init_pair(2, curses.COLOR_GREEN, -1)   # Date
+    curses.init_pair(3, curses.COLOR_YELLOW, -1)  # IP Address
+    curses.init_pair(4, curses.COLOR_WHITE, -1)   # Rule ID
+    curses.init_pair(5, curses.COLOR_WHITE, -1)   # Response Code
+    curses.init_pair(6, curses.COLOR_BLUE, -1)    # Severity
+    curses.init_pair(7, curses.COLOR_YELLOW, -1)  # Host (Domain Name)
 
     # Define bright colors for severity levels
-    curses.init_pair(8, curses.COLOR_RED, curses.COLOR_BLACK)     # Bright Red
-    curses.init_pair(9, curses.COLOR_YELLOW, curses.COLOR_BLACK)  # Yellow
-    curses.init_pair(10, curses.COLOR_BLUE, curses.COLOR_BLACK)   # Bright Blue
-    curses.init_pair(11, curses.COLOR_GREEN, curses.COLOR_BLACK)  # Bright Green
-    curses.init_pair(12, curses.COLOR_CYAN, curses.COLOR_BLACK)   # Bright Cyan
+    curses.init_pair(8, curses.COLOR_RED, -1)     # Bright Red
+    curses.init_pair(9, curses.COLOR_YELLOW, -1)  # Yellow
+    curses.init_pair(10, curses.COLOR_BLUE, -1)   # Bright Blue
+    curses.init_pair(11, curses.COLOR_GREEN, -1)  # Bright Green
+    curses.init_pair(12, curses.COLOR_CYAN, -1)   # Bright Cyan
 
-# Function to wrap text to fit within the screen width
 def wrap_text(text, width):
     words = text.split()
     lines = []
@@ -218,7 +230,6 @@ def wrap_text(text, width):
 
     return lines
 
-# Function to show detailed information of a selected entry
 def show_detailed_entry(stdscr, entry):
     stdscr.clear()
     stdscr.border(0)
@@ -233,7 +244,7 @@ def show_detailed_entry(stdscr, entry):
 
     details = [
         ("Date", date.strip()),
-        ("Remote Address", ip.strip()),  # Changed from IP Address to Remote Address
+        ("Remote Address", ip.strip()),
         ("Host", host.strip()),
         ("Rule ID", rule_id.strip()),
         ("Attack Name", attack_name.strip()),
@@ -275,7 +286,7 @@ def show_detailed_entry(stdscr, entry):
 
     # Implement scrolling
     current_line = 0
-    max_scroll = len(lines) - (max_y - 4)
+    max_scroll = max(0, len(lines) - (max_y - 4))
 
     while True:
         stdscr.erase()  # Use erase instead of clear to reduce flickering
@@ -296,7 +307,6 @@ def show_detailed_entry(stdscr, entry):
         elif char == curses.KEY_DOWN and current_line < max_scroll:
             current_line += 1
 
-# Function to show a popup confirmation window
 def show_confirmation_window(stdscr, message):
     max_y, max_x = stdscr.getmaxyx()
     win_width = 50
@@ -315,7 +325,6 @@ def show_confirmation_window(stdscr, message):
         elif char in (ord('n'), ord('N')):
             return False
 
-# Function to show a done message window
 def show_done_window(stdscr, message):
     max_y, max_x = stdscr.getmaxyx()
     win_width = len(message) + 4
@@ -327,7 +336,6 @@ def show_done_window(stdscr, message):
     win.refresh()
     time.sleep(3)
 
-# Function to draw the header
 def draw_header(stdscr, width):
     start_x = max(0, (width - 128) // 2)  # Ensure start_x is not negative
     stdscr.addstr(0, 2, "ModSentry 1.0", curses.color_pair(1) | curses.A_BOLD)  # Align to the left with a margin
@@ -335,7 +343,20 @@ def draw_header(stdscr, width):
     stdscr.addstr(2, (width - len("ModSecurity Log Monitor (Press 'q' to quit)")) // 2, "ModSecurity Log Monitor (Press 'q' to quit)", curses.color_pair(1) | curses.A_BOLD)
     stdscr.addstr(3, start_x, f"{'Date':^22} {'IP Address':^16} {'Host':^20} {'Rule ID':^8} {'Attack Name':^40} {'Severity':^9} {'Resp. Code':^9}", curses.color_pair(1) | curses.A_UNDERLINE)
 
-# Function to monitor the log file
+def read_last_entries(log_file_path, max_bytes=102400, max_entries=10):
+    """Read the last entries from the log file."""
+    with open(log_file_path, 'rb') as f:
+        try:
+            f.seek(-max_bytes, os.SEEK_END)
+        except IOError:
+            f.seek(0)
+        data = f.read().decode('latin1', errors='ignore')
+        # Use regex to split entries
+        entries = re.split(r'^--[-\w]+---Z--\n', data, flags=re.MULTILINE)
+        entries = [e for e in entries if '---' in e]
+        entries = ['--' + e for e in entries if e.strip()]
+        return entries[-max_entries:]
+
 def monitor_log_file(stdscr, log_file_path):
     curses.curs_set(0)  # Hide cursor
     stdscr.nodelay(True)  # Non-blocking input
@@ -357,61 +378,55 @@ def monitor_log_file(stdscr, log_file_path):
 
     check_iptables_chain()  # Ensure the ModSentry chain is ready
 
+    # Read the last entries
+    last_entries = read_last_entries(log_file_path, max_entries=10)
+    for entry in last_entries:
+        remote_date, remote_ip, host, rule_id, attack_name, severity, response_code, payload, info, additional_info = parse_log_entry(entry)
+        if rule_id != 'N/A' and rule_id not in IGNORE_RULE_IDS:
+            formatted_entry = format_entry(remote_date, remote_ip, host, rule_id, attack_name, severity, response_code, payload, info, additional_info)
+            log_entries.append(formatted_entry)
+
+    # Open the log file and seek to the end
     with open(log_file_path, 'r', encoding='latin1') as log_file:
-        # Read the file backwards to get the last 10 entries
-        lines = log_file.readlines()
+        log_file.seek(0, os.SEEK_END)
         buffer = ''
-        entries = []
+        blocked_ips = set()
+        last_blocked_ips_update = 0
 
-        for line in reversed(lines):
-            buffer = line + buffer
-            if line.startswith("---") and "A--" in line:
-                remote_date, remote_ip, host, rule_id, attack_name, severity, response_code, payload, info, additional_info = parse_log_entry(buffer)
-                # Only append if there's a Rule ID and it's not in the ignore list
-                if rule_id != 'N/A' and rule_id not in IGNORE_RULE_IDS:
-                    formatted_entry = format_entry(remote_date, remote_ip, host, rule_id, attack_name, severity, response_code, payload, info, additional_info)
-                    entries.append(formatted_entry)
-                buffer = ''  # Clear buffer for the next entry
-
-            if len(entries) >= 10:
-                break
-
-        log_entries.extend(reversed(entries))  # Reverse to maintain the order
-        log_file.seek(0, os.SEEK_END)  # Move to the end of the file
-
-        buffer = ''
-        last_position = log_file.tell()  # Track the last position
         while True:
+            # Use select to wait for new data or a timeout
+            rlist, _, _ = select.select([log_file], [], [], 0.1)
+            if log_file in rlist:
+                line = log_file.readline()
+                if line:
+                    buffer += line
+                    if re.match(r'^--[-\w]+---Z--', line.strip()):
+                        # End of an entry
+                        entry = buffer
+                        buffer = ''
+                        # Process the entry
+                        remote_date, remote_ip, host, rule_id, attack_name, severity, response_code, payload, info, additional_info = parse_log_entry(entry)
+                        if rule_id != 'N/A' and rule_id not in IGNORE_RULE_IDS:
+                            formatted_entry = format_entry(remote_date, remote_ip, host, rule_id, attack_name, severity, response_code, payload, info, additional_info)
+                            log_entries.append(formatted_entry)
+                            log_entries = log_entries[-MAX_ENTRIES:]  # Keep only the last MAX_ENTRIES entries
+                            # Auto-scroll to the bottom when new entries arrive
+                            current_line = max(0, len(log_entries) - (height - 8))
+                            selected_line = len(log_entries) - 1
+                else:
+                    # EOF reached
+                    time.sleep(0.1)
+
+            # Update blocked_ips every 5 seconds
+            current_time = time.time()
+            if current_time - last_blocked_ips_update > 5:
+                blocked_ips = {line.split()[3] for line in subprocess.run(['iptables', '-L', 'ModSentry', '-n'], capture_output=True, text=True).stdout.splitlines() if line.startswith("DROP")}
+                last_blocked_ips_update = current_time
+
             # Clear only when drawing to prevent flicker
             stdscr.erase()
             stdscr.border(0)
             draw_header(stdscr, width)
-
-            # Read only new lines
-            log_file.seek(last_position)
-            lines = log_file.read()
-            if lines:
-                buffer += lines
-                entries = buffer.split('---Z--\n')  # Split log entries by end marker
-                buffer = entries[-1]  # Keep the last partial entry in buffer
-
-                for entry in entries[:-1]:
-                    remote_date, remote_ip, host, rule_id, attack_name, severity, response_code, payload, info, additional_info = parse_log_entry(entry)
-                    # Only append if there's a Rule ID and it's not in the ignore list
-                    if rule_id != 'N/A' and rule_id not in IGNORE_RULE_IDS:
-                        formatted_entry = format_entry(remote_date, remote_ip, host, rule_id, attack_name, severity, response_code, payload, info, additional_info)
-                        log_entries.append(formatted_entry)
-                        log_entries = log_entries[-MAX_ENTRIES:]  # Keep only the last MAX_ENTRIES entries
-
-                # Auto-scroll to the bottom
-                current_line = max(0, len(log_entries) - (height - 8))
-                selected_line = len(log_entries) - 1
-
-            last_position = log_file.tell()  # Update the last position
-
-            # Fetch blocked IPs for red dot indication
-            blocked_ips = {line.split()[3] for line in subprocess.run(['iptables', '-L', 'ModSentry', '-n'], capture_output=True, text=True).stdout.splitlines() if line.startswith("DROP")}
-
             # Display the last entries that fit the screen height
             display_log_entries(stdscr, log_entries, current_line, selected_line, blocked_ips)
 
@@ -419,14 +434,16 @@ def monitor_log_file(stdscr, log_file_path):
             char = stdscr.getch()
             if char == ord('q'):
                 return
-            elif char == curses.KEY_UP and selected_line > 0:
-                selected_line -= 1
+            elif char == curses.KEY_UP:
+                if selected_line > 0:
+                    selected_line -= 1
                 if selected_line < current_line:
-                    current_line -= 1
-            elif char == curses.KEY_DOWN and selected_line < len(log_entries) - 1:
-                selected_line += 1
+                    current_line = selected_line
+            elif char == curses.KEY_DOWN:
+                if selected_line < len(log_entries) - 1:
+                    selected_line += 1
                 if selected_line >= current_line + (height - 8):
-                    current_line += 1
+                    current_line = selected_line - (height - 9)
             elif char == ord('b'):  # Handle block command
                 _, ip, _, _, _, _, _, _, _, _ = log_entries[selected_line].split('|')
                 if show_confirmation_window(stdscr, f"Block IP {ip.strip()}?"):
@@ -440,7 +457,7 @@ def monitor_log_file(stdscr, log_file_path):
                     # Show "Done!" message if successful
                     if "has been blocked" in message:
                         show_done_window(stdscr, "Done!")
-            
+
             elif char == ord('d'):  # Handle unblock command
                 _, ip, _, _, _, _, _, _, _, _ = log_entries[selected_line].split('|')
                 if show_confirmation_window(stdscr, f"Unblock IP {ip.strip()}?"):
@@ -460,10 +477,7 @@ def monitor_log_file(stdscr, log_file_path):
                 stdscr.erase()  # Use erase to clear without flicker
                 stdscr.border(0)
                 draw_header(stdscr, width)
-                log_file.seek(last_position)  # Ensure we continue from the correct position
                 continue  # Continue the loop to refresh the main screen
-
-            time.sleep(0.1)  # Reduce CPU usage
 
 def display_help():
     help_message = """
