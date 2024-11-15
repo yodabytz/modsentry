@@ -33,6 +33,10 @@ git clone https://github.com/your_username/modsentry.git
 cd modsentry
 sudo cp modsentry.py /usr/bin/modsentry
 ```
+## Screenshot
+<img src="https://raw.githubusercontent.com/yodabytz/modsentry/refs/heads/main/modsentry.png?raw=true" width="600">
+<img src="https://raw.githubusercontent.com/yodabytz/modsentry/refs/heads/main/modsentry_info.png?raw=true" width="600">
+
 ## Features
 
 - Real-time Monitoring: Automatically updates to display new log entries.
