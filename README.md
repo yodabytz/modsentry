@@ -7,6 +7,7 @@ ModSentry is a real-time log monitoring tool for analyzing security events from 
 - [Getting Started](#getting-started)
 - [Requirements](#Requirements)
 - [Installation](#installation)
+- [Screen Shots](#screenshots)
 - [Features](#features)
 - [Usage](#usage)
 - [Controls](#controls)
@@ -33,7 +34,7 @@ git clone https://github.com/your_username/modsentry.git
 cd modsentry
 sudo cp modsentry.py /usr/bin/modsentry
 ```
-## Screenshot
+## Screenshots
 <img src="https://raw.githubusercontent.com/yodabytz/modsentry/refs/heads/main/modsentry.png?raw=true" width="600">
 <img src="https://raw.githubusercontent.com/yodabytz/modsentry/refs/heads/main/modsentry_info.png?raw=true" width="600">
 
