@@ -1,0 +1,24 @@
+{
+  "name": "Zenbones Light",
+  "description": "Zenbones light theme with minimal contrasting colors",
+  "truecolor": true,
+  "colors": {
+    "background": "#F0EDEC",
+    "title_attack": "#0F4C75",
+    "date": "#4F6C31", 
+    "ip_address": "#8E44AD",
+    "rule_id": "#444444",
+    "response_code": "#444444",
+    "severity_base": "#8E44AD",
+    "host": "#8E44AD",
+    "blocked_indicator": "#C91B00",
+    "severity_emergency": "#C91B00",
+    "severity_alert": "#DC143C", 
+    "severity_critical": "#E74C3C",
+    "severity_error": "#C91B00",
+    "severity_warning": "#B7472A",
+    "severity_notice": "#8E44AD",
+    "severity_info": "#4F6C31",
+    "severity_debug": "#0F4C75"
+  }
+}

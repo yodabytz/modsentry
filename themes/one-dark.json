@@ -1,0 +1,24 @@
+{
+  "name": "One Dark",
+  "description": "One Dark theme inspired by Atom's default dark theme",
+  "truecolor": true,
+  "colors": {
+    "background": "#282C34",
+    "title_attack": "#61AFEF",
+    "date": "#98C379", 
+    "ip_address": "#E5C07B",
+    "rule_id": "#ABB2BF",
+    "response_code": "#ABB2BF",
+    "severity_base": "#C678DD",
+    "host": "#E5C07B",
+    "blocked_indicator": "#E06C75",
+    "severity_emergency": "#E06C75",
+    "severity_alert": "#E06C75", 
+    "severity_critical": "#E06C75",
+    "severity_error": "#E06C75",
+    "severity_warning": "#D19A66",
+    "severity_notice": "#C678DD",
+    "severity_info": "#98C379",
+    "severity_debug": "#56B6C2"
+  }
+}

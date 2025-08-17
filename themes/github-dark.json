@@ -1,0 +1,24 @@
+{
+  "name": "GitHub Dark",
+  "description": "GitHub Dark default theme",
+  "truecolor": true,
+  "colors": {
+    "background": "#0D1117",
+    "title_attack": "#58A6FF",
+    "date": "#7EE787", 
+    "ip_address": "#F2CC60",
+    "rule_id": "#E6EDF3",
+    "response_code": "#E6EDF3",
+    "severity_base": "#D2A8FF",
+    "host": "#F2CC60",
+    "blocked_indicator": "#F85149",
+    "severity_emergency": "#F85149",
+    "severity_alert": "#F85149", 
+    "severity_critical": "#FF7B72",
+    "severity_error": "#F85149",
+    "severity_warning": "#D29922",
+    "severity_notice": "#D2A8FF",
+    "severity_info": "#7EE787",
+    "severity_debug": "#79C0FF"
+  }
+}

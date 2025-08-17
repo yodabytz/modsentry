@@ -1,0 +1,24 @@
+{
+  "name": "Dracula",
+  "description": "Dracula dark theme with purple accents",
+  "truecolor": true,
+  "colors": {
+    "background": "#282A36",
+    "title_attack": "#8BE9FD",
+    "date": "#50FA7B", 
+    "ip_address": "#F1FA8C",
+    "rule_id": "#F8F8F2",
+    "response_code": "#F8F8F2",
+    "severity_base": "#BD93F9",
+    "host": "#F1FA8C",
+    "blocked_indicator": "#FF5555",
+    "severity_emergency": "#FF5555",
+    "severity_alert": "#FF6E6E", 
+    "severity_critical": "#FF7979",
+    "severity_error": "#FF8787",
+    "severity_warning": "#FFB86C",
+    "severity_notice": "#BD93F9",
+    "severity_info": "#50FA7B",
+    "severity_debug": "#8BE9FD"
+  }
+}

@@ -1,0 +1,24 @@
+{
+  "name": "Everforest Light",
+  "description": "Everforest light theme with warm forest colors",
+  "truecolor": true,
+  "colors": {
+    "background": "#FDF6E3",
+    "title_attack": "#35A77C",
+    "date": "#8DA101", 
+    "ip_address": "#DFA000",
+    "rule_id": "#5C6A72",
+    "response_code": "#5C6A72",
+    "severity_base": "#DF69BA",
+    "host": "#DFA000",
+    "blocked_indicator": "#F85552",
+    "severity_emergency": "#F85552",
+    "severity_alert": "#E66868", 
+    "severity_critical": "#E67E80",
+    "severity_error": "#F85552",
+    "severity_warning": "#FF8F40",
+    "severity_notice": "#DF69BA",
+    "severity_info": "#8DA101",
+    "severity_debug": "#35A77C"
+  }
+}

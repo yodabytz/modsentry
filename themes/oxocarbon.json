@@ -1,0 +1,24 @@
+{
+  "name": "Oxocarbon",
+  "description": "Oxocarbon theme with deep carbon blacks and vibrant accents",
+  "truecolor": true,
+  "colors": {
+    "background": "#161616",
+    "title_attack": "#78A9FF",
+    "date": "#42BE65", 
+    "ip_address": "#FFD700",
+    "rule_id": "#F2F4F8",
+    "response_code": "#F2F4F8",
+    "severity_base": "#BE95FF",
+    "host": "#FFD700",
+    "blocked_indicator": "#FF7EB6",
+    "severity_emergency": "#FF7EB6",
+    "severity_alert": "#FF7EB6", 
+    "severity_critical": "#FA4D56",
+    "severity_error": "#FF7EB6",
+    "severity_warning": "#F1C21B",
+    "severity_notice": "#BE95FF",
+    "severity_info": "#42BE65",
+    "severity_debug": "#33B1FF"
+  }
+}

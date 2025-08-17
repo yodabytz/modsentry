@@ -1,0 +1,24 @@
+{
+  "name": "Cthulhain",
+  "description": "Cthulhain dark theme with oceanic cosmic horror colors",
+  "truecolor": true,
+  "colors": {
+    "background": "#162737",
+    "title_attack": "#5c9291",
+    "date": "#96bd64", 
+    "ip_address": "#96bd64",
+    "rule_id": "#9a9a9a",
+    "response_code": "#9a9a9a",
+    "severity_base": "#5b6c86",
+    "host": "#96bd64",
+    "blocked_indicator": "#685c92",
+    "severity_emergency": "#685c92",
+    "severity_alert": "#685c92", 
+    "severity_critical": "#5c9291",
+    "severity_error": "#685c92",
+    "severity_warning": "#4a5b65",
+    "severity_notice": "#5b6c86",
+    "severity_info": "#96bd64",
+    "severity_debug": "#5c9291"
+  }
+}

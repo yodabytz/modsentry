@@ -1,0 +1,24 @@
+{
+  "name": "Tokyo Night",
+  "description": "Tokyo Night dark theme with vibrant colors",
+  "truecolor": true,
+  "colors": {
+    "background": "#1A1B26",
+    "title_attack": "#7DCFFF",
+    "date": "#9ECE6A", 
+    "ip_address": "#E0AF68",
+    "rule_id": "#C0CAF5",
+    "response_code": "#C0CAF5",
+    "severity_base": "#7AA2F7",
+    "host": "#E0AF68",
+    "blocked_indicator": "#F7768E",
+    "severity_emergency": "#DB4B4B",
+    "severity_alert": "#F7768E", 
+    "severity_critical": "#FF7A93",
+    "severity_error": "#FF9E64",
+    "severity_warning": "#E0AF68",
+    "severity_notice": "#7AA2F7",
+    "severity_info": "#9ECE6A",
+    "severity_debug": "#7DCFFF"
+  }
+}

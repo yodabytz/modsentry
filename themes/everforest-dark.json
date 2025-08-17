@@ -1,0 +1,24 @@
+{
+  "name": "Everforest Dark",
+  "description": "Everforest dark theme with warm forest colors",
+  "truecolor": true,
+  "colors": {
+    "background": "#2D353B",
+    "title_attack": "#7FBBB3",
+    "date": "#A7C080", 
+    "ip_address": "#DBBC7F",
+    "rule_id": "#D3C6AA",
+    "response_code": "#D3C6AA",
+    "severity_base": "#D699B6",
+    "host": "#DBBC7F",
+    "blocked_indicator": "#E67E80",
+    "severity_emergency": "#E67E80",
+    "severity_alert": "#F85552", 
+    "severity_critical": "#FF6188",
+    "severity_error": "#E67E80",
+    "severity_warning": "#E69875",
+    "severity_notice": "#D699B6",
+    "severity_info": "#A7C080",
+    "severity_debug": "#83C092"
+  }
+}

@@ -1,0 +1,24 @@
+{
+  "name": "One Light",
+  "description": "One Light theme inspired by Atom's default light theme",
+  "truecolor": true,
+  "colors": {
+    "background": "#FAFAFA",
+    "title_attack": "#4078F2",
+    "date": "#50A14F", 
+    "ip_address": "#C18401",
+    "rule_id": "#383A42",
+    "response_code": "#383A42",
+    "severity_base": "#A626A4",
+    "host": "#C18401",
+    "blocked_indicator": "#E45649",
+    "severity_emergency": "#E45649",
+    "severity_alert": "#E45649", 
+    "severity_critical": "#E45649",
+    "severity_error": "#E45649",
+    "severity_warning": "#D18F52",
+    "severity_notice": "#A626A4",
+    "severity_info": "#50A14F",
+    "severity_debug": "#0184BC"
+  }
+}
