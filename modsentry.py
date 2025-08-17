@@ -8,6 +8,9 @@ import subprocess
 import sys
 import whois
 import select
+import json
+import glob
+import argparse
 
 # Configuration Variables
 LOG_FILE_PATH = "/var/log/modsec_audit.log"  # Path to the log file
@@ -15,6 +18,8 @@ IGNORE_RULE_IDS = {"930130", "941100", "933120", "12345", "67890", "953100"}  # 
 MIN_WIDTH = 128  # Minimum width for the terminal
 MIN_HEIGHT = 24  # Minimum height for the terminal
 MAX_ENTRIES = 200  # Maximum number of entries to remember
+THEME_DIR = "/etc/modsentry/themes"  # Path to theme directory
+DEFAULT_THEME = "default"  # Default theme name
 
 # Mapping of severity numbers to descriptions
 SEVERITY_MAP = {
@@ -28,17 +33,196 @@ SEVERITY_MAP = {
     "7": "Debug"
 }
 
-# Mapping of severity descriptions to colors
+# Global variables for theme management
+current_theme = None
+theme_colors = {}
+
+# Mapping of severity descriptions to color names
 SEVERITY_COLOR_MAP = {
-    "Emergency": 8,  # Bright Red
-    "Alert": 8,
-    "Critical": 8,
-    "Error": 8,
-    "Warning": 9,   # Yellow
-    "Notice": 10,   # Bright Blue
-    "Info": 11,     # Bright Green
-    "Debug": 12     # Bright Cyan
+    "Emergency": "severity_emergency",
+    "Alert": "severity_alert",
+    "Critical": "severity_critical",
+    "Error": "severity_error",
+    "Warning": "severity_warning",
+    "Notice": "severity_notice",
+    "Info": "severity_info",
+    "Debug": "severity_debug"
 }
+
+def hex_to_rgb(hex_color):
+    """Convert hex color to RGB tuple."""
+    hex_color = hex_color.lstrip('#')
+    return tuple(int(hex_color[i:i+2], 16) for i in (0, 2, 4))
+
+def load_theme(theme_name):
+    """Load a theme from the themes directory."""
+    global current_theme, theme_colors
+    
+    theme_file = os.path.join(THEME_DIR, f"{theme_name}.json")
+    
+    if not os.path.exists(theme_file):
+        # Fallback to default theme
+        theme_file = os.path.join(THEME_DIR, f"{DEFAULT_THEME}.json")
+        if not os.path.exists(theme_file):
+            # If no themes exist, use built-in fallback
+            theme_colors = {
+                "title_attack": (0, 255, 255),
+                "date": (0, 255, 0),
+                "ip_address": (255, 255, 0),
+                "rule_id": (255, 255, 255),
+                "response_code": (255, 255, 255),
+                "severity_base": (0, 0, 255),
+                "host": (255, 255, 0),
+                "blocked_indicator": (255, 0, 0),
+                "severity_emergency": (255, 0, 0),
+                "severity_alert": (255, 0, 0),
+                "severity_critical": (255, 0, 0),
+                "severity_error": (255, 0, 0),
+                "severity_warning": (255, 255, 0),
+                "severity_notice": (0, 0, 255),
+                "severity_info": (0, 255, 0),
+                "severity_debug": (0, 255, 255)
+            }
+            current_theme = "builtin"
+            return
+    
+    try:
+        with open(theme_file, 'r') as f:
+            theme_data = json.load(f)
+            
+        theme_colors = {}
+        for color_name, hex_color in theme_data['colors'].items():
+            theme_colors[color_name] = hex_to_rgb(hex_color)
+            
+        current_theme = theme_data['name']
+    except (json.JSONDecodeError, KeyError, IOError) as e:
+        # Fallback to built-in colors on error
+        load_theme(DEFAULT_THEME)
+
+def get_available_themes():
+    """Get list of available theme names."""
+    if not os.path.exists(THEME_DIR):
+        return []
+    
+    theme_files = glob.glob(os.path.join(THEME_DIR, "*.json"))
+    return [os.path.splitext(os.path.basename(f))[0] for f in theme_files]
+
+def get_color_pair_for_severity(severity_color_name):
+    """Get the color pair number for a severity color name."""
+    color_pair_map = {
+        "severity_emergency": 9,
+        "severity_alert": 10,
+        "severity_critical": 11,
+        "severity_error": 12,
+        "severity_warning": 13,
+        "severity_notice": 14,
+        "severity_info": 15,
+        "severity_debug": 16,
+        "severity_base": 6
+    }
+    return color_pair_map.get(severity_color_name, 6)
+
+def get_response_code_color_pair(response_code, severity):
+    """Get color pair for response code based on HTTP status and severity."""
+    try:
+        code = int(response_code.strip())
+        
+        # High threat responses (4xx, 5xx) - use severity-based colors
+        if code >= 500:  # Server errors - critical
+            return get_color_pair_for_severity("severity_critical")
+        elif code >= 400:  # Client errors - error/warning based on severity
+            if severity.strip() in ["Emergency", "Alert", "Critical", "Error"]:
+                return get_color_pair_for_severity("severity_error")
+            else:
+                return get_color_pair_for_severity("severity_warning")
+        elif code >= 300:  # Redirects - notice
+            return get_color_pair_for_severity("severity_notice")
+        elif code >= 200:  # Success - info
+            return get_color_pair_for_severity("severity_info")
+        else:  # 1xx - debug
+            return get_color_pair_for_severity("severity_debug")
+    except (ValueError, AttributeError):
+        # If response code is invalid, use severity color
+        severity_color_name = SEVERITY_COLOR_MAP.get(severity.strip(), "severity_base")
+        return get_color_pair_for_severity(severity_color_name)
+
+def get_theme_from_env():
+    """Get theme name from environment variable or use default."""
+    return os.environ.get('MODSENTRY_THEME', DEFAULT_THEME)
+
+def truncate_text(text, width, ellipsis='...'):
+    """Smart text truncation with ellipsis."""
+    if not text:
+        return ''
+    
+    text = str(text).strip()
+    if len(text) <= width:
+        return text
+    
+    if width <= len(ellipsis):
+        return text[:width]
+    
+    return text[:width - len(ellipsis)] + ellipsis
+
+def reinitialize_colors_with_theme(theme_name):
+    """Reinitialize colors with a new theme without restarting the application."""
+    global theme_colors, current_theme
+    
+    try:
+        # Load the new theme
+        load_theme(theme_name)
+        
+        # Check if terminal supports truecolor
+        if curses.can_change_color() and curses.COLORS >= 256:
+            # Update background color
+            bg_color_id = 100
+            if "background" in theme_colors:
+                bg_r, bg_g, bg_b = theme_colors["background"]
+                bg_r_curses = int((bg_r / 255.0) * 1000)
+                bg_g_curses = int((bg_g / 255.0) * 1000)
+                bg_b_curses = int((bg_b / 255.0) * 1000)
+                curses.init_color(bg_color_id, bg_r_curses, bg_g_curses, bg_b_curses)
+            else:
+                curses.init_color(bg_color_id, 0, 0, 0)
+            
+            # Map color names to curses color pairs
+            color_pair_map = {
+                "title_attack": 1,
+                "date": 2,
+                "ip_address": 3,
+                "rule_id": 4,
+                "response_code": 5,
+                "severity_base": 6,
+                "host": 7,
+                "blocked_indicator": 8,
+                "severity_emergency": 9,
+                "severity_alert": 10,
+                "severity_critical": 11,
+                "severity_error": 12,
+                "severity_warning": 13,
+                "severity_notice": 14,
+                "severity_info": 15,
+                "severity_debug": 16
+            }
+            
+            # Update existing color definitions with background
+            color_id = 16  # Start from color 16 to avoid basic colors
+            for color_name, pair_id in color_pair_map.items():
+                if color_name in theme_colors:
+                    r, g, b = theme_colors[color_name]
+                    # Convert RGB (0-255) to curses range (0-1000)
+                    r_curses = int((r / 255.0) * 1000)
+                    g_curses = int((g / 255.0) * 1000)
+                    b_curses = int((b / 255.0) * 1000)
+                    
+                    curses.init_color(color_id, r_curses, g_curses, b_curses)
+                    curses.init_pair(pair_id, color_id, bg_color_id)  # Use background color
+                    color_id += 1
+        
+        return current_theme
+    except Exception as e:
+        # If theme switching fails, keep current theme
+        return current_theme if current_theme else "unknown"
 
 def get_whois_info(ip_address):
     """Fetch Whois information for a given IP address and format it."""
@@ -166,26 +350,37 @@ def display_log_entries(stdscr, log_entries, current_line, selected_line, blocke
         is_blocked = ip.strip() in blocked_ips
 
         # Calculate positions to center the data
-        start_x = max(0, (width - 128) // 2)  # Ensure start_x is not negative
+        start_x = max(0, (width - 125) // 2)  # Ensure start_x is not negative and matches header
 
         # Add a red dot for blocked IPs
         if is_blocked:
             stdscr.addstr(idx, start_x - 2, '●', curses.color_pair(8))  # Bright Red dot
 
-        # Display the log entry
+        # Display the log entry with adjusted column positioning to fit within borders
+        # Calculate safe positions that won't exceed terminal width
+        max_width = width - 4  # Leave 2 chars margin on each side
+        
         stdscr.addnstr(idx, start_x, date.strip(), 22, curses.color_pair(2) | (curses.A_REVERSE if is_selected else 0))
         stdscr.addnstr(idx, start_x + 23, ip.strip(), 16, curses.color_pair(3) | (curses.A_REVERSE if is_selected else 0))
         stdscr.addnstr(idx, start_x + 40, host.strip(), 20, curses.color_pair(7) | (curses.A_REVERSE if is_selected else 0))
         stdscr.addnstr(idx, start_x + 60, rule_id.strip(), 8, curses.color_pair(4) | (curses.A_REVERSE if is_selected else 0))
-        stdscr.addnstr(idx, start_x + 69, attack_name.strip(), 40, curses.color_pair(1) | (curses.A_REVERSE if is_selected else 0))
+        stdscr.addnstr(idx, start_x + 69, attack_name.strip(), 37, curses.color_pair(1) | (curses.A_REVERSE if is_selected else 0))
 
         # Apply appropriate color to the severity based on the mapping
-        severity_color = SEVERITY_COLOR_MAP.get(severity.strip(), 5)
-        stdscr.addnstr(idx, start_x + 110, severity.strip().center(9), 9, curses.color_pair(severity_color) | (curses.A_REVERSE if is_selected else 0))
-        stdscr.addnstr(idx, start_x + 120, response_code.strip().center(9), 9, curses.color_pair(5) | (curses.A_REVERSE if is_selected else 0))
+        severity_color_name = SEVERITY_COLOR_MAP.get(severity.strip(), "severity_info")
+        severity_color_pair = get_color_pair_for_severity(severity_color_name)
+        severity_pos = start_x + 107
+        response_pos = start_x + 117
+        
+        # Only display if within safe bounds
+        if severity_pos + 9 <= max_width:
+            stdscr.addnstr(idx, severity_pos, severity.strip().center(9), 9, curses.color_pair(severity_color_pair) | (curses.A_REVERSE if is_selected else 0))
+        
+        if response_pos + 8 <= max_width:
+            stdscr.addnstr(idx, response_pos, response_code.strip().center(8), 8, curses.color_pair(5) | (curses.A_REVERSE if is_selected else 0))
 
     # Add the block IP message at the bottom
-    stdscr.addstr(height - 3, 2, "Enter: More Info | 'b': Block IP | 'd': Unblock IP | 'q': Quit | ● Blocked IP", curses.color_pair(1))
+    stdscr.addstr(height - 3, 2, "Enter: More Info | 'b': Block IP | 'd': Unblock IP | 't': Theme | 'q': Quit | ● Blocked IP", curses.color_pair(1))
     stdscr.refresh()
 
 def format_entry(remote_date, remote_ip, host, rule_id, attack_name, severity, response_code, payload, info, additional_info):
@@ -193,22 +388,82 @@ def format_entry(remote_date, remote_ip, host, rule_id, attack_name, severity, r
     return f"{remote_date:<22}|{remote_ip:<16}|{host:<20}|{rule_id:<8}|{attack_name:<40}|{severity:<9}|{response_code:<9}|{payload[:20]}|{info[:20]}|{additional_info[:20]}"
 
 def init_colors():
+    global theme_colors
+    
     curses.start_color()
     curses.use_default_colors()
-    curses.init_pair(1, curses.COLOR_CYAN, -1)    # Title and Attack Name
-    curses.init_pair(2, curses.COLOR_GREEN, -1)   # Date
-    curses.init_pair(3, curses.COLOR_YELLOW, -1)  # IP Address
-    curses.init_pair(4, curses.COLOR_WHITE, -1)   # Rule ID
-    curses.init_pair(5, curses.COLOR_WHITE, -1)   # Response Code
-    curses.init_pair(6, curses.COLOR_BLUE, -1)    # Severity
-    curses.init_pair(7, curses.COLOR_YELLOW, -1)  # Host (Domain Name)
-
-    # Define bright colors for severity levels
-    curses.init_pair(8, curses.COLOR_RED, -1)     # Bright Red
-    curses.init_pair(9, curses.COLOR_YELLOW, -1)  # Yellow
-    curses.init_pair(10, curses.COLOR_BLUE, -1)   # Bright Blue
-    curses.init_pair(11, curses.COLOR_GREEN, -1)  # Bright Green
-    curses.init_pair(12, curses.COLOR_CYAN, -1)   # Bright Cyan
+    
+    # Load the theme from environment or use default
+    theme_name = get_theme_from_env()
+    load_theme(theme_name)
+    
+    # Check if terminal supports truecolor
+    if curses.can_change_color() and curses.COLORS >= 256:
+        # Initialize color palette with theme colors
+        color_id = 16  # Start from color 16 to avoid basic colors
+        bg_color_id = 100  # Background color ID
+        
+        # Initialize background color
+        if "background" in theme_colors:
+            bg_r, bg_g, bg_b = theme_colors["background"]
+            bg_r_curses = int((bg_r / 255.0) * 1000)
+            bg_g_curses = int((bg_g / 255.0) * 1000)
+            bg_b_curses = int((bg_b / 255.0) * 1000)
+            curses.init_color(bg_color_id, bg_r_curses, bg_g_curses, bg_b_curses)
+        else:
+            # Default to black background
+            curses.init_color(bg_color_id, 0, 0, 0)
+        
+        # Map color names to curses color pairs
+        color_pair_map = {
+            "title_attack": 1,
+            "date": 2,
+            "ip_address": 3,
+            "rule_id": 4,
+            "response_code": 5,
+            "severity_base": 6,
+            "host": 7,
+            "blocked_indicator": 8,
+            "severity_emergency": 9,
+            "severity_alert": 10,
+            "severity_critical": 11,
+            "severity_error": 12,
+            "severity_warning": 13,
+            "severity_notice": 14,
+            "severity_info": 15,
+            "severity_debug": 16
+        }
+        
+        # Initialize colors and pairs with background
+        for color_name, pair_id in color_pair_map.items():
+            if color_name in theme_colors:
+                r, g, b = theme_colors[color_name]
+                # Convert RGB (0-255) to curses range (0-1000)
+                r_curses = int((r / 255.0) * 1000)
+                g_curses = int((g / 255.0) * 1000)
+                b_curses = int((b / 255.0) * 1000)
+                
+                curses.init_color(color_id, r_curses, g_curses, b_curses)
+                curses.init_pair(pair_id, color_id, bg_color_id)  # Use background color
+                color_id += 1
+    else:
+        # Fallback to basic colors for terminals without truecolor support
+        curses.init_pair(1, curses.COLOR_CYAN, curses.COLOR_BLACK)    # Title and Attack Name
+        curses.init_pair(2, curses.COLOR_GREEN, curses.COLOR_BLACK)   # Date
+        curses.init_pair(3, curses.COLOR_YELLOW, curses.COLOR_BLACK)  # IP Address
+        curses.init_pair(4, curses.COLOR_WHITE, curses.COLOR_BLACK)   # Rule ID
+        curses.init_pair(5, curses.COLOR_WHITE, curses.COLOR_BLACK)   # Response Code
+        curses.init_pair(6, curses.COLOR_BLUE, curses.COLOR_BLACK)    # Severity
+        curses.init_pair(7, curses.COLOR_YELLOW, curses.COLOR_BLACK)  # Host (Domain Name)
+        curses.init_pair(8, curses.COLOR_RED, curses.COLOR_BLACK)     # Blocked indicator
+        curses.init_pair(9, curses.COLOR_RED, curses.COLOR_BLACK)     # Emergency
+        curses.init_pair(10, curses.COLOR_RED, curses.COLOR_BLACK)    # Alert
+        curses.init_pair(11, curses.COLOR_RED, curses.COLOR_BLACK)    # Critical
+        curses.init_pair(12, curses.COLOR_RED, curses.COLOR_BLACK)    # Error
+        curses.init_pair(13, curses.COLOR_YELLOW, curses.COLOR_BLACK) # Warning
+        curses.init_pair(14, curses.COLOR_BLUE, curses.COLOR_BLACK)   # Notice
+        curses.init_pair(15, curses.COLOR_GREEN, curses.COLOR_BLACK)  # Info
+        curses.init_pair(16, curses.COLOR_CYAN, curses.COLOR_BLACK)   # Debug
 
 def wrap_text(text, width):
     words = text.split()
@@ -232,6 +487,7 @@ def wrap_text(text, width):
 
 def show_detailed_entry(stdscr, entry):
     stdscr.clear()
+    stdscr.bkgd(' ', curses.color_pair(1))  # Set background
     stdscr.border(0)
 
     date, ip, host, rule_id, attack_name, severity, response_code, payload, info, additional_info = entry.split('|')
@@ -290,6 +546,7 @@ def show_detailed_entry(stdscr, entry):
 
     while True:
         stdscr.erase()  # Use erase instead of clear to reduce flickering
+        stdscr.bkgd(' ', curses.color_pair(1))  # Set background
         stdscr.border(0)
         stdscr.addstr(0, (max_x - len("Attack Details")) // 2, "Attack Details", curses.color_pair(1) | curses.A_BOLD)
         stdscr.addstr(max_y - 2, (max_x - len("Press <Left Arrow> to return | Up/Down to scroll")) // 2, "Press <Left Arrow> to return | Up/Down to scroll", curses.color_pair(1) | curses.A_BOLD)
@@ -313,6 +570,7 @@ def show_confirmation_window(stdscr, message):
     win_height = 5
 
     win = curses.newwin(win_height, win_width, (max_y - win_height) // 2, (max_x - win_width) // 2)
+    win.bkgd(' ', curses.color_pair(1))  # Set background
     win.border(0)
     win.addstr(1, 2, message, curses.color_pair(1))
     win.addstr(3, 2, "Press 'y' to confirm, 'n' to cancel.", curses.color_pair(1))
@@ -331,17 +589,108 @@ def show_done_window(stdscr, message):
     win_height = 3
 
     win = curses.newwin(win_height, win_width, (max_y - win_height) // 2, (max_x - win_width) // 2)
+    win.bkgd(' ', curses.color_pair(1))  # Set background
     win.border(0)
     win.addstr(1, 2, message, curses.color_pair(1))
     win.refresh()
     time.sleep(3)
 
+def show_theme_selection_window(stdscr):
+    """Show theme selection dialog and return selected theme or None if cancelled."""
+    try:
+        available_themes = get_available_themes()
+        if not available_themes:
+            show_done_window(stdscr, "No themes available!")
+            return None
+        
+        max_y, max_x = stdscr.getmaxyx()
+        win_width = max(50, max(len(theme) for theme in available_themes) + 10)
+        win_height = len(available_themes) + 6
+        
+        # Ensure window fits on screen
+        if win_height > max_y - 2:
+            win_height = max_y - 2
+        if win_width > max_x - 2:
+            win_width = max_x - 2
+        
+        win = curses.newwin(win_height, win_width, (max_y - win_height) // 2, (max_x - win_width) // 2)
+        win.keypad(True)  # Enable keypad for arrow keys
+        win.bkgd(' ', curses.color_pair(1))  # Set background for dialog
+        
+        selected_index = 0
+        
+        # Find current theme index by name matching
+        if current_theme:
+            for i, theme in enumerate(available_themes):
+                # Try to match theme name (case insensitive)
+                if theme.lower() == current_theme.lower() or theme.lower() in current_theme.lower():
+                    selected_index = i
+                    break
+    
+        while True:
+            try:
+                win.erase()
+                win.border(0)
+                
+                # Add title
+                title = "Select Theme"
+                title_x = max(2, (win_width - len(title)) // 2)
+                win.addstr(0, title_x, title, curses.color_pair(1) | curses.A_BOLD)
+                
+                # Display themes list
+                for i, theme in enumerate(available_themes):
+                    if i + 2 >= win_height - 2:  # Don't exceed window bounds
+                        break
+                    y_pos = i + 2
+                    prefix = "► " if i == selected_index else "  "
+                    theme_text = f"{prefix}{theme}"
+                    
+                    # Truncate if too long
+                    if len(theme_text) > win_width - 4:
+                        theme_text = theme_text[:win_width - 7] + "..."
+                    
+                    if i == selected_index:
+                        win.addstr(y_pos, 2, theme_text, curses.color_pair(1) | curses.A_REVERSE)
+                    else:
+                        win.addstr(y_pos, 2, theme_text, curses.color_pair(1))
+                
+                # Add instructions
+                instructions = "Use ↑/↓ to select, Enter to apply, ESC to cancel"
+                if len(instructions) > win_width - 4:
+                    instructions = "Arrow keys, Enter, ESC"
+                win.addstr(win_height - 2, 2, instructions, curses.color_pair(1))
+                
+                win.refresh()
+                
+                char = win.getch()
+                
+                # Handle key presses
+                if char == curses.KEY_UP or char == ord('k'):
+                    if selected_index > 0:
+                        selected_index -= 1
+                elif char == curses.KEY_DOWN or char == ord('j'):
+                    if selected_index < len(available_themes) - 1:
+                        selected_index += 1
+                elif char in (curses.KEY_ENTER, 10, 13, ord(' ')):  # Enter or Space
+                    return available_themes[selected_index]
+                elif char == 27 or char == ord('q'):  # ESC or 'q'
+                    return None
+                # Ignore all other keys and continue the loop
+                
+            except curses.error:
+                # Handle any curses errors gracefully
+                continue
+                
+    except Exception as e:
+        # If anything goes wrong, return None
+        return None
+
 def draw_header(stdscr, width):
-    start_x = max(0, (width - 128) // 2)  # Ensure start_x is not negative
+    start_x = max(0, (width - 125) // 2)  # Adjusted for better fit
     stdscr.addstr(0, 2, "ModSentry 1.0", curses.color_pair(1) | curses.A_BOLD)  # Align to the left with a margin
     stdscr.addstr(1, 2, "by Yodabytz", curses.color_pair(1) | curses.A_BOLD)    # Author name
     stdscr.addstr(2, (width - len("ModSecurity Log Monitor (Press 'q' to quit)")) // 2, "ModSecurity Log Monitor (Press 'q' to quit)", curses.color_pair(1) | curses.A_BOLD)
-    stdscr.addstr(3, start_x, f"{'Date':^22} {'IP Address':^16} {'Host':^20} {'Rule ID':^8} {'Attack Name':^40} {'Severity':^9} {'Resp. Code':^9}", curses.color_pair(1) | curses.A_UNDERLINE)
+    stdscr.addstr(3, start_x, f"{'Date':^22} {'IP Address':^16} {'Host':^20} {'Rule ID':^8} {'Attack Name':^37} {'Severity':^9} {'Resp':^8}", curses.color_pair(1) | curses.A_UNDERLINE)
 
 def read_last_entries(log_file_path, max_bytes=102400, max_entries=10):
     """Read the last entries from the log file."""
@@ -360,7 +709,13 @@ def read_last_entries(log_file_path, max_bytes=102400, max_entries=10):
 def monitor_log_file(stdscr, log_file_path):
     curses.curs_set(0)  # Hide cursor
     stdscr.nodelay(True)  # Non-blocking input
+    
+    # Initialize colors with theme support
+    theme_name = get_theme_from_env()
     init_colors()
+    
+    # Set background color for the entire screen
+    stdscr.bkgd(' ', curses.color_pair(1))  # Use a color pair for background
 
     height, width = stdscr.getmaxyx()
 
@@ -425,6 +780,8 @@ def monitor_log_file(stdscr, log_file_path):
 
             # Clear only when drawing to prevent flicker
             stdscr.erase()
+            # Set background color before drawing
+            stdscr.bkgd(' ', curses.color_pair(1))
             stdscr.border(0)
             draw_header(stdscr, width)
             # Display the last entries that fit the screen height
@@ -472,15 +829,37 @@ def monitor_log_file(stdscr, log_file_path):
                     if "has been unblocked" in message:
                         show_done_window(stdscr, "Done!")
 
+            elif char == ord('t'):  # Handle theme selection
+                try:
+                    selected_theme = show_theme_selection_window(stdscr)
+                    if selected_theme:
+                        # Apply the new theme
+                        new_theme_name = reinitialize_colors_with_theme(selected_theme)
+                        show_done_window(stdscr, f"Theme changed to {new_theme_name}")
+                except Exception as e:
+                    # If theme switching fails, show error and continue
+                    show_done_window(stdscr, "Theme change failed")
+                # Always refresh the main screen
+                stdscr.erase()
+                # Set background color after theme change
+                stdscr.bkgd(' ', curses.color_pair(1))
+                stdscr.border(0)
+                draw_header(stdscr, width)
+                continue
             elif char in (curses.KEY_ENTER, 10, 13):  # Handle Enter key
                 show_detailed_entry(stdscr, log_entries[selected_line])
                 stdscr.erase()  # Use erase to clear without flicker
+                # Restore background color after detailed view
+                stdscr.bkgd(' ', curses.color_pair(1))
                 stdscr.border(0)
                 draw_header(stdscr, width)
                 continue  # Continue the loop to refresh the main screen
 
 def display_help():
-    help_message = """
+    available_themes = get_available_themes()
+    theme_list = ", ".join(available_themes) if available_themes else "No themes found"
+    
+    help_message = f"""
 ModSentry - ModSecurity Log Monitor
 
 Usage:
@@ -488,16 +867,26 @@ Usage:
 
 Options:
   -h, --help  Show this help message and exit
+  -t, --theme THEME  Set theme (default, dark, solarized, tokyonight, dracula, gruvbox)
 
 Controls:
   Enter  Show more info about the selected entry
   b      Block the IP address of the selected entry
   d      Unblock the IP address of the selected entry
+  t      Change theme (live theme switching)
   q      Quit the application
+
+Theme Support:
+  Set MODSENTRY_THEME environment variable to change themes.
+  Available themes: {theme_list}
+  Default theme: {DEFAULT_THEME}
+  
+  Example: MODSENTRY_THEME=dark modsentry
 
 Description:
   ModSentry is a real-time log monitoring tool for ModSecurity logs.
   It allows you to view and analyze security events, and block suspicious IPs.
+  Supports truecolor themes for enhanced visual experience over SSH/tmux.
 
 Requirements:
   - Run as root or with sudo privileges for iptables access.
@@ -506,16 +895,34 @@ Requirements:
     print(help_message)
 
 def main():
-    # Check for command line arguments
-    if len(sys.argv) > 1:
-        if sys.argv[1] in ('-h', '--help'):
-            display_help()
-            return
-
+    # Set up argument parser
+    parser = argparse.ArgumentParser(description='ModSentry - ModSecurity Log Monitor', add_help=False)
+    parser.add_argument('-h', '--help', action='store_true', help='Show this help message and exit')
+    parser.add_argument('-t', '--theme', type=str, help='Theme to use (overrides MODSENTRY_THEME environment variable)')
+    
+    try:
+        args = parser.parse_args()
+    except SystemExit:
+        return
+    
+    # Handle help
+    if args.help:
+        display_help()
+        return
+    
+    # Set theme from command line if provided
+    if args.theme:
+        # Handle theme aliases
+        theme_name = args.theme.lower()
+        if theme_name in ['tokyo_nights', 'tokyo-nights', 'tokyonights']:
+            theme_name = 'tokyonight'
+        os.environ['MODSENTRY_THEME'] = theme_name
+    
     # Check if the script is run with root privileges
     if os.geteuid() != 0:
         print("This script must be run as root to access iptables. Please run with sudo.")
         return
+    
     curses.wrapper(monitor_log_file, LOG_FILE_PATH)
 
 if __name__ == "__main__":
