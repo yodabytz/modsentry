@@ -5,7 +5,7 @@
   "colors": {
     "background": "#000000",
     "title_attack": "#00FFFF",
-    "date": "#00FF00", 
+    "date": "#00FF00",
     "ip_address": "#FFFF00",
     "rule_id": "#FFFFFF",
     "response_code": "#FFFFFF",
@@ -13,12 +13,13 @@
     "host": "#FFFF00",
     "blocked_indicator": "#FF0000",
     "severity_emergency": "#FF0000",
-    "severity_alert": "#FF0000", 
+    "severity_alert": "#FF0000",
     "severity_critical": "#FF0000",
     "severity_error": "#FF0000",
     "severity_warning": "#FFFF00",
     "severity_notice": "#0000FF",
     "severity_info": "#00FF00",
-    "severity_debug": "#00FFFF"
+    "severity_debug": "#00FFFF",
+    "local_ip_address": "#00FF00"
   }
 }

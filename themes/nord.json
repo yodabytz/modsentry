@@ -5,7 +5,7 @@
   "colors": {
     "background": "#2E3440",
     "title_attack": "#88C0D0",
-    "date": "#A3BE8C", 
+    "date": "#A3BE8C",
     "ip_address": "#EBCB8B",
     "rule_id": "#D8DEE9",
     "response_code": "#D8DEE9",
@@ -13,12 +13,13 @@
     "host": "#EBCB8B",
     "blocked_indicator": "#BF616A",
     "severity_emergency": "#BF616A",
-    "severity_alert": "#BF616A", 
+    "severity_alert": "#BF616A",
     "severity_critical": "#D08770",
     "severity_error": "#BF616A",
     "severity_warning": "#D08770",
     "severity_notice": "#B48EAD",
     "severity_info": "#A3BE8C",
-    "severity_debug": "#8FBCBB"
+    "severity_debug": "#8FBCBB",
+    "local_ip_address": "#A3BE8C"
   }
 }
