@@ -1,4 +1,4 @@
-## ModSentry 2.0
+## ModSentry 1.5
 
 ModSentry is a real-time log monitoring tool for analyzing security events from ModSecurity logs. It provides an intuitive terminal interface to track alerts and highlight critical incidents. IP addresses can be blocked or unblocked using `iptables` directly from the interface. Features production-ready security capabilities including audit trail logging, persistent IP blocks that survive reboots, and compliance-ready configurations. For this script to work, ModSecurity must be set to Serial logging. Theme support with truecolor is now available.
 
@@ -50,7 +50,7 @@ sudo cp modsentry.py /usr/bin/modsentry
 - Help Command: View usage instructions and controls via the `-h` switch.
 - Theme Support: Multiple color themes with truecolor support for SSH/tmux.
 
-### Phase 1 Features (v2.0)
+### Phase 1 Features (v1.5)
 - **Audit Trail Logging**: All block/unblock actions logged to `/var/log/modsentry-audit.log` with timestamp, user, rule ID, and status
 - **Persistent IP Blocks**: Blocked IPs saved to `/etc/modsentry/blocked-ips.conf` and automatically restored on system reboot
 - **Whitelist Configuration**: Trusted IP whitelist support via `/etc/modsentry/whitelist.conf`

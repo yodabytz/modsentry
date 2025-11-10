@@ -14,7 +14,7 @@ import argparse
 from datetime import datetime
 
 # Version
-VERSION = "2.0"
+VERSION = "1.5"
 
 # Configuration Variables
 LOG_FILE_PATH = "/var/log/modsec_audit.log"  # Path to the log file
