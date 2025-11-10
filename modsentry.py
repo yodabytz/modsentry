@@ -13,6 +13,9 @@ import glob
 import argparse
 from datetime import datetime
 
+# Version
+VERSION = "2.0"
+
 # Configuration Variables
 LOG_FILE_PATH = "/var/log/modsec_audit.log"  # Path to the log file
 AUDIT_LOG_PATH = "/var/log/modsentry-audit.log"  # Audit trail log file
@@ -1027,9 +1030,9 @@ def monitor_log_file(stdscr, log_file_path):
 def display_help():
     available_themes = get_available_themes()
     theme_list = ", ".join(available_themes) if available_themes else "No themes found"
-    
+
     help_message = f"""
-ModSentry - ModSecurity Log Monitor
+ModSentry v{VERSION} - ModSecurity Log Monitor
 
 Usage:
   modsentry [options]
@@ -1045,16 +1048,24 @@ Controls:
   t      Change theme (live theme switching)
   q      Quit the application
 
+Phase 1 Features:
+  - Audit trail logging: /var/log/modsentry-audit.log
+  - Persistent IP blocks: /etc/modsentry/blocked-ips.conf
+  - Whitelist support: /etc/modsentry/whitelist.conf
+  - iptables rule ordering (rules checked first)
+  - Local/remote IP differentiation with color coding
+
 Theme Support:
   Set MODSENTRY_THEME environment variable to change themes.
   Available themes: {theme_list}
   Default theme: {DEFAULT_THEME}
-  
+
   Example: MODSENTRY_THEME=dark modsentry
 
 Description:
   ModSentry is a real-time log monitoring tool for ModSecurity logs.
-  It allows you to view and analyze security events, and block suspicious IPs.
+  It allows you to view and analyze security events, block suspicious IPs,
+  and maintain audit trails for compliance (SOC2, PCI-DSS, HIPAA).
   Supports truecolor themes for enhanced visual experience over SSH/tmux.
 
 Requirements:
