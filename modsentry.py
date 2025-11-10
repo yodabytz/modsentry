@@ -190,6 +190,7 @@ def reinitialize_colors_with_theme(theme_name):
                 "title_attack": 1,
                 "date": 2,
                 "ip_address": 3,
+                "local_ip_address": 17,  # New color for local IPs
                 "rule_id": 4,
                 "response_code": 5,
                 "severity_base": 6,
@@ -327,61 +328,104 @@ def parse_log_entry(entry):
 
     return remote_date, remote_ip, host, rule_id, attack_name, severity, response_code, payload, info, additional_info
 
-def display_log_entries(stdscr, log_entries, current_line, selected_line, blocked_ips):
+def is_local_ip(ip_str):
+    """Check if an IP address is a local/private IP."""
+    try:
+        parts = ip_str.strip().split('.')
+        if len(parts) != 4:
+            return False
+
+        octets = [int(p) for p in parts]
+
+        # Check for private IP ranges
+        # 10.0.0.0 - 10.255.255.255
+        if octets[0] == 10:
+            return True
+        # 172.16.0.0 - 172.31.255.255
+        if octets[0] == 172 and 16 <= octets[1] <= 31:
+            return True
+        # 192.168.0.0 - 192.168.255.255
+        if octets[0] == 192 and octets[1] == 168:
+            return True
+        # 127.0.0.0 - 127.255.255.255 (localhost)
+        if octets[0] == 127:
+            return True
+        # 169.254.0.0 - 169.254.255.255 (link-local)
+        if octets[0] == 169 and octets[1] == 254:
+            return True
+
+        return False
+    except (ValueError, IndexError):
+        return False
+
+def display_log_entries(stdscr, log_entries, current_line, selected_line, blocked_ips, last_draw_state):
+    """Display log entries with optimized rendering to reduce flicker."""
     height, width = stdscr.getmaxyx()
 
-    # Display log entries with colors for each column
-    for idx, entry in enumerate(log_entries[current_line:current_line + height - 8], start=4):
-        stdscr.move(idx, 1)
-        stdscr.clrtoeol()  # Clear the current line before updating
+    # Calculate positions once
+    start_x = max(0, (width - 125) // 2)
+    max_width = width - 4
 
+    # Only redraw lines that changed
+    for idx, entry in enumerate(log_entries[current_line:current_line + height - 8], start=4):
         # Split the formatted entry into its components
         parts = entry.split('|')
         if len(parts) != 10:
-            # Skip malformed entries
             continue
 
         date, ip, host, rule_id, attack_name, severity, response_code, _, _, _ = parts
 
         # Determine if this line is the currently selected one
-        is_selected = current_line + idx - 4 == selected_line
+        entry_idx = current_line + idx - 4
+        is_selected = entry_idx == selected_line
 
         # Determine if the IP is blocked
         is_blocked = ip.strip() in blocked_ips
 
-        # Calculate positions to center the data
-        start_x = max(0, (width - 125) // 2)  # Ensure start_x is not negative and matches header
+        # Check if this line needs redraw (optimization)
+        cache_key = f"{idx}:{is_selected}:{is_blocked}"
+        if cache_key in last_draw_state and last_draw_state[cache_key] == entry:
+            continue  # Skip redraw if identical
+
+        # Clear only the line we're about to update
+        stdscr.move(idx, 1)
+        stdscr.clrtoeol()
 
         # Add a red dot for blocked IPs
         if is_blocked:
-            stdscr.addstr(idx, start_x - 2, '●', curses.color_pair(8))  # Bright Red dot
+            stdscr.addstr(idx, start_x - 2, '●', curses.color_pair(8))
 
-        # Display the log entry with adjusted column positioning to fit within borders
-        # Calculate safe positions that won't exceed terminal width
-        max_width = width - 4  # Leave 2 chars margin on each side
-        
+        # Display the log entry with colors
         stdscr.addnstr(idx, start_x, date.strip(), 22, curses.color_pair(2) | (curses.A_REVERSE if is_selected else 0))
-        stdscr.addnstr(idx, start_x + 23, ip.strip(), 16, curses.color_pair(3) | (curses.A_REVERSE if is_selected else 0))
+
+        # Use different color pair for local vs remote IPs
+        ip_color_pair = 17 if is_local_ip(ip) else 3  # 17 for local, 3 for remote
+        stdscr.addnstr(idx, start_x + 23, ip.strip(), 16, curses.color_pair(ip_color_pair) | (curses.A_REVERSE if is_selected else 0))
+
         stdscr.addnstr(idx, start_x + 40, host.strip(), 20, curses.color_pair(7) | (curses.A_REVERSE if is_selected else 0))
         stdscr.addnstr(idx, start_x + 60, rule_id.strip(), 8, curses.color_pair(4) | (curses.A_REVERSE if is_selected else 0))
         stdscr.addnstr(idx, start_x + 69, attack_name.strip(), 37, curses.color_pair(1) | (curses.A_REVERSE if is_selected else 0))
 
-        # Apply appropriate color to the severity based on the mapping
+        # Apply appropriate color to the severity
         severity_color_name = SEVERITY_COLOR_MAP.get(severity.strip(), "severity_info")
         severity_color_pair = get_color_pair_for_severity(severity_color_name)
         severity_pos = start_x + 107
         response_pos = start_x + 117
-        
-        # Only display if within safe bounds
+
         if severity_pos + 9 <= max_width:
             stdscr.addnstr(idx, severity_pos, severity.strip().center(9), 9, curses.color_pair(severity_color_pair) | (curses.A_REVERSE if is_selected else 0))
-        
+
         if response_pos + 8 <= max_width:
             stdscr.addnstr(idx, response_pos, response_code.strip().center(8), 8, curses.color_pair(5) | (curses.A_REVERSE if is_selected else 0))
 
+        # Update cache
+        last_draw_state[cache_key] = entry
+
     # Add the block IP message at the bottom
     stdscr.addstr(height - 3, 2, "Enter: More Info | 'b': Block IP | 'd': Unblock IP | 't': Theme | 'q': Quit | ● Blocked IP", curses.color_pair(1))
-    stdscr.refresh()
+
+    # Use noutrefresh/doupdate for faster rendering
+    stdscr.noutrefresh()
 
 def format_entry(remote_date, remote_ip, host, rule_id, attack_name, severity, response_code, payload, info, additional_info):
     # Concatenate fields into a string with fixed-width columns using '|' as a separator
@@ -419,6 +463,7 @@ def init_colors():
             "title_attack": 1,
             "date": 2,
             "ip_address": 3,
+            "local_ip_address": 17,  # New color for local IPs
             "rule_id": 4,
             "response_code": 5,
             "severity_base": 6,
@@ -450,7 +495,7 @@ def init_colors():
         # Fallback to basic colors for terminals without truecolor support
         curses.init_pair(1, curses.COLOR_CYAN, curses.COLOR_BLACK)    # Title and Attack Name
         curses.init_pair(2, curses.COLOR_GREEN, curses.COLOR_BLACK)   # Date
-        curses.init_pair(3, curses.COLOR_YELLOW, curses.COLOR_BLACK)  # IP Address
+        curses.init_pair(3, curses.COLOR_YELLOW, curses.COLOR_BLACK)  # IP Address (Remote)
         curses.init_pair(4, curses.COLOR_WHITE, curses.COLOR_BLACK)   # Rule ID
         curses.init_pair(5, curses.COLOR_WHITE, curses.COLOR_BLACK)   # Response Code
         curses.init_pair(6, curses.COLOR_BLUE, curses.COLOR_BLACK)    # Severity
@@ -464,6 +509,7 @@ def init_colors():
         curses.init_pair(14, curses.COLOR_BLUE, curses.COLOR_BLACK)   # Notice
         curses.init_pair(15, curses.COLOR_GREEN, curses.COLOR_BLACK)  # Info
         curses.init_pair(16, curses.COLOR_CYAN, curses.COLOR_BLACK)   # Debug
+        curses.init_pair(17, curses.COLOR_CYAN, curses.COLOR_BLACK)   # IP Address (Local)
 
 def wrap_text(text, width):
     words = text.split()
@@ -730,6 +776,8 @@ def monitor_log_file(stdscr, log_file_path):
     log_entries = []
     current_line = 0
     selected_line = 0
+    last_draw_state = {}  # Cache for rendering optimization
+    needs_full_redraw = True  # Flag for full screen redraw
 
     check_iptables_chain()  # Ensure the ModSentry chain is ready
 
@@ -750,7 +798,7 @@ def monitor_log_file(stdscr, log_file_path):
 
         while True:
             # Use select to wait for new data or a timeout
-            rlist, _, _ = select.select([log_file], [], [], 0.1)
+            rlist, _, _ = select.select([log_file], [], [], 0.05)  # Faster timeout for responsiveness
             if log_file in rlist:
                 line = log_file.readline()
                 if line:
@@ -768,9 +816,8 @@ def monitor_log_file(stdscr, log_file_path):
                             # Auto-scroll to the bottom when new entries arrive
                             current_line = max(0, len(log_entries) - (height - 8))
                             selected_line = len(log_entries) - 1
-                else:
-                    # EOF reached
-                    time.sleep(0.1)
+                            needs_full_redraw = True  # Mark for redraw on new entry
+                            last_draw_state.clear()  # Clear cache on new entries
 
             # Update blocked_ips every 5 seconds
             current_time = time.time()
@@ -778,27 +825,34 @@ def monitor_log_file(stdscr, log_file_path):
                 blocked_ips = {line.split()[3] for line in subprocess.run(['iptables', '-L', 'ModSentry', '-n'], capture_output=True, text=True).stdout.splitlines() if line.startswith("DROP")}
                 last_blocked_ips_update = current_time
 
-            # Clear only when drawing to prevent flicker
-            stdscr.erase()
-            # Set background color before drawing
-            stdscr.bkgd(' ', curses.color_pair(1))
-            stdscr.border(0)
-            draw_header(stdscr, width)
-            # Display the last entries that fit the screen height
-            display_log_entries(stdscr, log_entries, current_line, selected_line, blocked_ips)
+            # Full redraw only when needed
+            if needs_full_redraw:
+                stdscr.erase()
+                stdscr.bkgd(' ', curses.color_pair(1))
+                stdscr.border(0)
+                draw_header(stdscr, width)
+                needs_full_redraw = False
 
-            # Handle scrolling and quitting
+            # Display the last entries that fit the screen height
+            display_log_entries(stdscr, log_entries, current_line, selected_line, blocked_ips, last_draw_state)
+
+            # Use doupdate for atomic refresh
+            curses.doupdate()
+
+            # Handle scrolling and quitting (non-blocking)
             char = stdscr.getch()
             if char == ord('q'):
                 return
             elif char == curses.KEY_UP:
                 if selected_line > 0:
                     selected_line -= 1
+                    needs_full_redraw = False  # Just update display, don't full clear
                 if selected_line < current_line:
                     current_line = selected_line
             elif char == curses.KEY_DOWN:
                 if selected_line < len(log_entries) - 1:
                     selected_line += 1
+                    needs_full_redraw = False  # Just update display, don't full clear
                 if selected_line >= current_line + (height - 8):
                     current_line = selected_line - (height - 9)
             elif char == ord('b'):  # Handle block command
