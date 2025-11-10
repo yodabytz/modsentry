@@ -11,9 +11,13 @@ import select
 import json
 import glob
 import argparse
+from datetime import datetime
 
 # Configuration Variables
 LOG_FILE_PATH = "/var/log/modsec_audit.log"  # Path to the log file
+AUDIT_LOG_PATH = "/var/log/modsentry-audit.log"  # Audit trail log file
+BLOCKED_IPS_FILE = "/etc/modsentry/blocked-ips.conf"  # Persistent blocked IPs
+WHITELIST_FILE = "/etc/modsentry/whitelist.conf"  # Whitelist of trusted IPs
 IGNORE_RULE_IDS = {"930130", "941100", "933120", "12345", "67890", "953100"}  # Set of rule IDs to ignore
 MIN_WIDTH = 128  # Minimum width for the terminal
 MIN_HEIGHT = 24  # Minimum height for the terminal
@@ -48,6 +52,99 @@ SEVERITY_COLOR_MAP = {
     "Info": "severity_info",
     "Debug": "severity_debug"
 }
+
+def log_audit_action(action, ip_address, rule_id, attack_name, status, details=""):
+    """Log an action to the audit trail."""
+    try:
+        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        username = os.getenv("SUDO_USER") or os.getenv("USER") or "root"
+
+        # Format: timestamp | username | action | ip | rule_id | attack_name | status | details
+        audit_entry = f"{timestamp} | {username} | {action} | {ip_address.strip()} | {rule_id} | {attack_name} | {status}"
+        if details:
+            audit_entry += f" | {details}"
+        audit_entry += "\n"
+
+        # Write to audit log (create if doesn't exist)
+        with open(AUDIT_LOG_PATH, "a") as f:
+            f.write(audit_entry)
+    except Exception as e:
+        # Silently fail if we can't write to audit log
+        pass
+
+def save_blocked_ip_to_file(ip):
+    """Save a blocked IP to the persistent file."""
+    try:
+        ip = ip.strip()
+        # Ensure directory exists
+        os.makedirs(os.path.dirname(BLOCKED_IPS_FILE), exist_ok=True)
+
+        # Check if IP already in file
+        if os.path.exists(BLOCKED_IPS_FILE):
+            with open(BLOCKED_IPS_FILE, 'r') as f:
+                existing = f.read()
+                if ip in existing:
+                    return  # Already saved
+
+        # Append IP to file
+        with open(BLOCKED_IPS_FILE, 'a') as f:
+            f.write(f"{ip}\n")
+    except Exception as e:
+        pass  # Silently fail
+
+def remove_blocked_ip_from_file(ip):
+    """Remove a blocked IP from the persistent file."""
+    try:
+        ip = ip.strip()
+        if not os.path.exists(BLOCKED_IPS_FILE):
+            return
+
+        with open(BLOCKED_IPS_FILE, 'r') as f:
+            lines = f.readlines()
+
+        with open(BLOCKED_IPS_FILE, 'w') as f:
+            for line in lines:
+                if line.strip() != ip:
+                    f.write(line)
+    except Exception as e:
+        pass  # Silently fail
+
+def restore_blocked_ips_from_file():
+    """Restore blocked IPs from persistent file to iptables."""
+    try:
+        if not os.path.exists(BLOCKED_IPS_FILE):
+            return
+
+        with open(BLOCKED_IPS_FILE, 'r') as f:
+            for line in f:
+                ip = line.strip()
+                if ip and not line.startswith('#'):
+                    # Check if already in iptables
+                    if not is_ip_blocked(ip):
+                        try:
+                            subprocess.run(['iptables', '-A', 'ModSentry', '-s', ip, '-j', 'DROP'],
+                                         check=True, timeout=5)
+                        except Exception:
+                            pass  # Skip IPs that fail to add
+    except Exception:
+        pass  # Silently fail
+
+def load_whitelist():
+    """Load whitelist of trusted IPs from config file."""
+    whitelist = set()
+    if not os.path.exists(WHITELIST_FILE):
+        return whitelist
+
+    try:
+        with open(WHITELIST_FILE, 'r') as f:
+            for line in f:
+                line = line.strip()
+                if line and not line.startswith('#'):
+                    whitelist.add(line)
+    except Exception:
+        pass
+
+    return whitelist
 
 def hex_to_rgb(hex_color):
     """Convert hex color to RGB tuple."""
@@ -248,41 +345,57 @@ def check_iptables_chain():
     try:
         # Check if the ModSentry chain exists
         subprocess.run(['iptables', '-L', 'ModSentry'], check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        # Chain exists, restore blocked IPs from persistent file
+        restore_blocked_ips_from_file()
     except subprocess.CalledProcessError:
         # Create the ModSentry chain if it doesn't exist
         subprocess.run(['iptables', '-N', 'ModSentry'], check=True)
-        # Insert the ModSentry chain into the INPUT chain
-        subprocess.run(['iptables', '-I', 'INPUT', '-j', 'ModSentry'], check=True)
+        # Insert the ModSentry chain at position 1 (checked FIRST, before ACCEPT rules)
+        subprocess.run(['iptables', '-I', 'INPUT', '1', '-j', 'ModSentry'], check=True)
+        # Restore blocked IPs from persistent file
+        restore_blocked_ips_from_file()
 
 def is_ip_blocked(ip):
     """Check if the given IP is already blocked in the ModSentry chain."""
     result = subprocess.run(['iptables', '-L', 'ModSentry', '-n'], capture_output=True, text=True)
     return ip in result.stdout
 
-def block_ip(ip):
-    """Block the given IP address using iptables."""
+def block_ip(ip, rule_id="", attack_name=""):
+    """Block the given IP address using iptables with audit logging and persistence."""
     try:
         # Trim whitespace from the IP address
         ip = ip.strip()
         if not is_ip_blocked(ip):
             subprocess.run(['iptables', '-A', 'ModSentry', '-s', ip, '-j', 'DROP'], check=True)
+            # Save to persistent file
+            save_blocked_ip_to_file(ip)
+            # Log to audit trail
+            log_audit_action("BLOCK", ip, rule_id, attack_name, "Success")
             return f"IP {ip} has been blocked."
         else:
             return f"IP {ip} is already blocked."
     except subprocess.CalledProcessError as e:
+        # Log failed block attempt
+        log_audit_action("BLOCK", ip, rule_id, attack_name, "Failed", str(e))
         return f"Failed to block IP {ip}: {str(e)}"
 
-def unblock_ip(ip):
-    """Unblock the given IP address using iptables."""
+def unblock_ip(ip, rule_id="", attack_name=""):
+    """Unblock the given IP address using iptables with audit logging and persistence."""
     try:
         # Trim whitespace from the IP address
         ip = ip.strip()
         if is_ip_blocked(ip):
             subprocess.run(['iptables', '-D', 'ModSentry', '-s', ip, '-j', 'DROP'], check=True)
+            # Remove from persistent file
+            remove_blocked_ip_from_file(ip)
+            # Log to audit trail
+            log_audit_action("UNBLOCK", ip, rule_id, attack_name, "Success")
             return f"IP {ip} has been unblocked."
         else:
             return f"IP {ip} is not blocked."
     except subprocess.CalledProcessError as e:
+        # Log failed unblock attempt
+        log_audit_action("UNBLOCK", ip, rule_id, attack_name, "Failed", str(e))
         return f"Failed to unblock IP {ip}: {str(e)}"
 
 def parse_log_entry(entry):
@@ -856,12 +969,13 @@ def monitor_log_file(stdscr, log_file_path):
                 if selected_line >= current_line + (height - 8):
                     current_line = selected_line - (height - 9)
             elif char == ord('b'):  # Handle block command
-                _, ip, _, _, _, _, _, _, _, _ = log_entries[selected_line].split('|')
+                parts = log_entries[selected_line].split('|')
+                _, ip, _, rule_id, attack_name, _, _, _, _, _ = parts
                 if show_confirmation_window(stdscr, f"Block IP {ip.strip()}?"):
                     stdscr.addstr(height - 3, 2, f"Blocking IP {ip}...                        ", curses.color_pair(1))
                     stdscr.refresh()
-                    # Run the block command
-                    message = block_ip(ip)
+                    # Run the block command with rule_id and attack_name
+                    message = block_ip(ip, rule_id, attack_name)
                     stdscr.addstr(height - 3, 2, message + " Press any key to continue.", curses.color_pair(1))
                     stdscr.refresh()
                     stdscr.getch()
@@ -870,12 +984,13 @@ def monitor_log_file(stdscr, log_file_path):
                         show_done_window(stdscr, "Done!")
 
             elif char == ord('d'):  # Handle unblock command
-                _, ip, _, _, _, _, _, _, _, _ = log_entries[selected_line].split('|')
+                parts = log_entries[selected_line].split('|')
+                _, ip, _, rule_id, attack_name, _, _, _, _, _ = parts
                 if show_confirmation_window(stdscr, f"Unblock IP {ip.strip()}?"):
                     stdscr.addstr(height - 3, 2, f"Unblocking IP {ip}...                        ", curses.color_pair(1))
                     stdscr.refresh()
-                    # Run the unblock command
-                    message = unblock_ip(ip)
+                    # Run the unblock command with rule_id and attack_name
+                    message = unblock_ip(ip, rule_id, attack_name)
                     stdscr.addstr(height - 3, 2, message + " Press any key to continue.", curses.color_pair(1))
                     stdscr.refresh()
                     stdscr.getch()
