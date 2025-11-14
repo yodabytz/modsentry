@@ -410,9 +410,15 @@ def parse_log_entry(entry):
     ip_match = re.search(r'^---.*?---A--\n\[.*?\]\s+\S+\s+(\d{1,3}(?:\.\d{1,3}){3})', entry, re.MULTILINE)
     remote_ip = ip_match.group(1) if ip_match else 'N/A'
 
-    # Extract host from section B
+    # Extract host from the HTTP Host header (the target server being attacked)
     host_match = re.search(r'^Host:\s*(.+)$', entry, re.MULTILINE)
-    host = host_match.group(1).strip() if host_match else 'N/A'
+    if host_match:
+        host = host_match.group(1).strip()
+        # Remove port if present (e.g., "example.com:8080" -> "example.com")
+        if ':' in host:
+            host = host.split(':')[0]
+    else:
+        host = 'N/A'
 
     # Extract rule ID from section H
     rule_id_match = re.search(r'\[id "(\d+)"\]', entry)
@@ -492,8 +498,8 @@ def display_log_entries(stdscr, log_entries, current_line, selected_line, blocke
         date, ip, host, rule_id, attack_name, severity, response_code, _, _, _ = parts
 
         # Determine if this line is the currently selected one
-        entry_idx = current_line + idx - 4
-        is_selected = entry_idx == selected_line
+        entry_idx = current_line + (idx - 4)
+        is_selected = entry_idx == selected_line and entry_idx < len(log_entries)
 
         # Determine if the IP is blocked
         is_blocked = ip.strip() in blocked_ips
