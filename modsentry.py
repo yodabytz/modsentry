@@ -499,13 +499,13 @@ def display_log_entries(stdscr, log_entries, current_line, selected_line, blocke
 
         # Determine if this line is the currently selected one
         entry_idx = current_line + (idx - 4)
-        is_selected = entry_idx == selected_line and entry_idx < len(log_entries)
+        is_selected = (entry_idx == selected_line) and (0 <= entry_idx < len(log_entries))
 
         # Determine if the IP is blocked
         is_blocked = ip.strip() in blocked_ips
 
         # Check if this line needs redraw (optimization)
-        cache_key = f"{idx}:{is_selected}:{is_blocked}"
+        cache_key = f"{entry_idx}:{is_selected}:{is_blocked}"
         if cache_key in last_draw_state and last_draw_state[cache_key] == entry:
             continue  # Skip redraw if identical
 
