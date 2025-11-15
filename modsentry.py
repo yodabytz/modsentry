@@ -628,7 +628,9 @@ def display_log_entries(stdscr, log_entries, current_line, selected_line, blocke
         last_draw_state[cache_key] = entry
 
     # Add the block IP message at the bottom
-    stdscr.addstr(height - 3, 2, "Enter: More Info | 'b': Block IP | 'd': Unblock IP | 'i': Ignore Rule | 't': Theme | 'q': Quit | ● Blocked IP", curses.color_pair(1))
+    footer_text = "Enter: More Info | 'b': Block IP | 'd': Unblock IP | 'i': Ignore Rule | 't': Theme | 'q': Quit | "
+    stdscr.addstr(height - 3, 2, footer_text, curses.color_pair(1))
+    stdscr.addstr(height - 3, 2 + len(footer_text), "● Blocked IP", curses.color_pair(8))
 
     # Use noutrefresh/doupdate for faster rendering
     stdscr.noutrefresh()
@@ -705,7 +707,7 @@ def init_colors():
         curses.init_pair(4, curses.COLOR_WHITE, curses.COLOR_BLACK)   # Rule ID
         curses.init_pair(5, curses.COLOR_WHITE, curses.COLOR_BLACK)   # Response Code
         curses.init_pair(6, curses.COLOR_BLUE, curses.COLOR_BLACK)    # Severity
-        curses.init_pair(7, curses.COLOR_YELLOW, curses.COLOR_BLACK)  # Host (Domain Name)
+        curses.init_pair(7, curses.COLOR_MAGENTA, curses.COLOR_BLACK)  # Host (Domain Name)
         curses.init_pair(8, curses.COLOR_RED, curses.COLOR_BLACK)     # Blocked indicator
         curses.init_pair(9, curses.COLOR_RED, curses.COLOR_BLACK)     # Emergency
         curses.init_pair(10, curses.COLOR_RED, curses.COLOR_BLACK)    # Alert
