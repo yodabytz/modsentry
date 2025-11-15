@@ -16,17 +16,21 @@ from datetime import datetime
 # Version
 VERSION = "1.5"
 
-# Configuration Variables
-LOG_FILE_PATH = "/var/log/modsec_audit.log"  # Path to the log file
-AUDIT_LOG_PATH = "/var/log/modsentry-audit.log"  # Audit trail log file
-BLOCKED_IPS_FILE = "/etc/modsentry/blocked-ips.conf"  # Persistent blocked IPs
-WHITELIST_FILE = "/etc/modsentry/whitelist.conf"  # Whitelist of trusted IPs
-IGNORE_RULE_IDS = {"930130", "941100", "933120", "12345", "67890", "953100"}  # Set of rule IDs to ignore
-MIN_WIDTH = 128  # Minimum width for the terminal
-MIN_HEIGHT = 24  # Minimum height for the terminal
-MAX_ENTRIES = 200  # Maximum number of entries to remember
-THEME_DIR = "/etc/modsentry/themes"  # Path to theme directory
-DEFAULT_THEME = "default"  # Default theme name
+# Configuration file paths
+CONFIG_FILE = "/etc/modsentry/modsentry.conf"
+IGNORE_RULES_FILE = "/etc/modsentry/ignore-rules.conf"
+
+# Default configuration (will be overridden by config file)
+LOG_FILE_PATH = "/var/log/modsec_audit.log"
+AUDIT_LOG_PATH = "/var/log/modsentry-audit.log"
+BLOCKED_IPS_FILE = "/etc/modsentry/blocked-ips.conf"
+WHITELIST_FILE = "/etc/modsentry/whitelist.conf"
+IGNORE_RULE_IDS = set()  # Will be loaded from config
+MIN_WIDTH = 128
+MIN_HEIGHT = 24
+MAX_ENTRIES = 200
+THEME_DIR = "/etc/modsentry/themes"
+DEFAULT_THEME = "default"
 
 # Mapping of severity numbers to descriptions
 SEVERITY_MAP = {
@@ -55,6 +59,85 @@ SEVERITY_COLOR_MAP = {
     "Info": "severity_info",
     "Debug": "severity_debug"
 }
+
+def load_config():
+    """Load configuration from config file."""
+    global LOG_FILE_PATH, AUDIT_LOG_PATH, BLOCKED_IPS_FILE, WHITELIST_FILE
+    global MIN_WIDTH, MIN_HEIGHT, MAX_ENTRIES, THEME_DIR, DEFAULT_THEME, IGNORE_RULE_IDS
+
+    if not os.path.exists(CONFIG_FILE):
+        return  # Use defaults if no config file
+
+    try:
+        with open(CONFIG_FILE, 'r') as f:
+            for line in f:
+                line = line.strip()
+                if not line or line.startswith('#'):
+                    continue
+
+                if '=' not in line:
+                    continue
+
+                key, value = line.split('=', 1)
+                key = key.strip()
+                value = value.strip()
+
+                if key == 'log_file':
+                    LOG_FILE_PATH = value
+                elif key == 'audit_log':
+                    AUDIT_LOG_PATH = value
+                elif key == 'blocked_ips_file':
+                    BLOCKED_IPS_FILE = value
+                elif key == 'whitelist_file':
+                    WHITELIST_FILE = value
+                elif key == 'min_width':
+                    MIN_WIDTH = int(value)
+                elif key == 'min_height':
+                    MIN_HEIGHT = int(value)
+                elif key == 'max_entries':
+                    MAX_ENTRIES = int(value)
+                elif key == 'theme_dir':
+                    THEME_DIR = value
+                elif key == 'default_theme':
+                    DEFAULT_THEME = value
+    except Exception as e:
+        pass  # Use defaults on error
+
+def load_ignore_rules():
+    """Load ignore rules from ignore rules file."""
+    global IGNORE_RULE_IDS
+
+    IGNORE_RULE_IDS = set()
+    if not os.path.exists(IGNORE_RULES_FILE):
+        return
+
+    try:
+        with open(IGNORE_RULES_FILE, 'r') as f:
+            for line in f:
+                line = line.strip()
+                if line and not line.startswith('#'):
+                    IGNORE_RULE_IDS.add(line)
+    except Exception:
+        pass
+
+def add_ignore_rule(rule_id):
+    """Add a rule ID to the ignore list and save to file."""
+    global IGNORE_RULE_IDS
+
+    rule_id = rule_id.strip()
+    if not rule_id or rule_id in IGNORE_RULE_IDS:
+        return False  # Already exists or invalid
+
+    IGNORE_RULE_IDS.add(rule_id)
+
+    try:
+        with open(IGNORE_RULES_FILE, 'a') as f:
+            f.write(f"{rule_id}\n")
+        return True
+    except Exception:
+        # Remove from set if we can't save to file
+        IGNORE_RULE_IDS.discard(rule_id)
+        return False
 
 def log_audit_action(action, ip_address, rule_id, attack_name, status, details=""):
     """Log an action to the audit trail."""
@@ -1025,6 +1108,24 @@ def monitor_log_file(stdscr, log_file_path):
                 stdscr.border(0)
                 draw_header(stdscr, width)
                 continue
+            elif char == ord('I'):  # Handle ignore rule command
+                # Get the rule ID from the selected entry
+                parts = log_entries[selected_line].split('|')
+                rule_id = parts[3].strip() if len(parts) > 3 else 'N/A'
+
+                if rule_id != 'N/A':
+                    if show_confirmation_window(stdscr, f"Add rule {rule_id} to ignore list?"):
+                        if add_ignore_rule(rule_id):
+                            show_done_window(stdscr, f"Rule {rule_id} added to ignore list")
+                        else:
+                            show_done_window(stdscr, f"Rule {rule_id} already ignored or failed")
+                else:
+                    show_done_window(stdscr, "Cannot add N/A rule")
+                stdscr.erase()
+                stdscr.bkgd(' ', curses.color_pair(1))
+                stdscr.border(0)
+                draw_header(stdscr, width)
+                continue
             elif char in (curses.KEY_ENTER, 10, 13):  # Handle Enter key
                 show_detailed_entry(stdscr, log_entries[selected_line])
                 stdscr.erase()  # Use erase to clear without flicker
@@ -1052,6 +1153,7 @@ Controls:
   Enter  Show more info about the selected entry
   b      Block the IP address of the selected entry
   d      Unblock the IP address of the selected entry
+  I      Add rule ID to ignore list (won't display alerts for this rule)
   t      Change theme (live theme switching)
   q      Quit the application
 
@@ -1082,6 +1184,10 @@ Requirements:
     print(help_message)
 
 def main():
+    # Load configuration from file
+    load_config()
+    load_ignore_rules()
+
     # Set up argument parser
     parser = argparse.ArgumentParser(description='ModSentry - ModSecurity Log Monitor', add_help=False)
     parser.add_argument('-h', '--help', action='store_true', help='Show this help message and exit')
