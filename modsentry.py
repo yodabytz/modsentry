@@ -1108,7 +1108,7 @@ def monitor_log_file(stdscr, log_file_path):
                 stdscr.border(0)
                 draw_header(stdscr, width)
                 continue
-            elif char == ord('I'):  # Handle ignore rule command
+            elif char == ord('i'):  # Handle ignore rule command
                 # Get the rule ID from the selected entry
                 parts = log_entries[selected_line].split('|')
                 rule_id = parts[3].strip() if len(parts) > 3 else 'N/A'
@@ -1153,7 +1153,7 @@ Controls:
   Enter  Show more info about the selected entry
   b      Block the IP address of the selected entry
   d      Unblock the IP address of the selected entry
-  I      Add rule ID to ignore list (won't display alerts for this rule)
+  i      Add rule ID to ignore list (won't display alerts for this rule)
   t      Change theme (live theme switching)
   q      Quit the application
 
