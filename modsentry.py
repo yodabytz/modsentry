@@ -11,6 +11,7 @@ import select
 import json
 import glob
 import argparse
+import socket
 from datetime import datetime
 
 # Version
@@ -563,6 +564,23 @@ def is_local_ip(ip_str):
     except (ValueError, IndexError):
         return False
 
+def get_domain_from_ip(ip_str):
+    """Get domain name from IP using reverse DNS lookup (with caching)."""
+    ip_str = ip_str.strip()
+    if not ip_str or ip_str == 'N/A':
+        return ip_str
+
+    try:
+        # Try reverse DNS lookup - timeout after 1 second
+        domain = socket.gethostbyaddr(ip_str)[0]
+        # Return just the domain, not the full FQDN if it's very long
+        if len(domain) > 20:
+            return domain.split('.')[-2] + '.' + domain.split('.')[-1]  # Return last two parts
+        return domain
+    except (socket.herror, socket.timeout, OSError):
+        # If reverse DNS fails, return the IP
+        return ip_str
+
 def display_log_entries(stdscr, log_entries, current_line, selected_line, blocked_ips, last_draw_state):
     """Display log entries with optimized rendering to reduce flicker."""
     height, width = stdscr.getmaxyx()
@@ -606,7 +624,9 @@ def display_log_entries(stdscr, log_entries, current_line, selected_line, blocke
 
         # Use different color pair for local vs remote IPs
         ip_color_pair = 17 if is_local_ip(ip) else 3  # 17 for local, 3 for remote
-        stdscr.addnstr(idx, start_x + 23, ip.strip(), 16, curses.color_pair(ip_color_pair) | (curses.A_REVERSE if is_selected else 0))
+        # Try to show domain name instead of IP, fallback to IP if reverse DNS fails
+        display_ip = get_domain_from_ip(ip.strip())
+        stdscr.addnstr(idx, start_x + 23, display_ip, 16, curses.color_pair(ip_color_pair) | (curses.A_REVERSE if is_selected else 0))
 
         stdscr.addnstr(idx, start_x + 40, host.strip(), 20, curses.color_pair(7) | (curses.A_REVERSE if is_selected else 0))
         stdscr.addnstr(idx, start_x + 60, rule_id.strip(), 8, curses.color_pair(4) | (curses.A_REVERSE if is_selected else 0))
