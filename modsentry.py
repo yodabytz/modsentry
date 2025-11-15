@@ -628,7 +628,7 @@ def display_log_entries(stdscr, log_entries, current_line, selected_line, blocke
         last_draw_state[cache_key] = entry
 
     # Add the block IP message at the bottom
-    stdscr.addstr(height - 3, 2, "Enter: More Info | 'b': Block IP | 'd': Unblock IP | 't': Theme | 'q': Quit | ● Blocked IP", curses.color_pair(1))
+    stdscr.addstr(height - 3, 2, "Enter: More Info | 'b': Block IP | 'd': Unblock IP | 'i': Ignore Rule | 't': Theme | 'q': Quit | ● Blocked IP", curses.color_pair(1))
 
     # Use noutrefresh/doupdate for faster rendering
     stdscr.noutrefresh()
