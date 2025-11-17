@@ -652,17 +652,6 @@ def display_log_entries(stdscr, log_entries, current_line, selected_line, blocke
     stdscr.addstr(height - 3, 2, footer_text, curses.color_pair(1))
     stdscr.addstr(height - 3, 2 + len(footer_text), "● Blocked IP", curses.color_pair(8))
 
-    # Draw scrollbar on the right edge
-    if len(log_entries) > 0:
-        scrollbar_height = max(1, (height - 8) * (height - 8) // len(log_entries))
-        scrollbar_pos = max(0, current_line * (height - 8 - scrollbar_height) // max(1, len(log_entries) - (height - 8)))
-
-        for i in range(4, height - 4):
-            if i >= 4 + scrollbar_pos and i < 4 + scrollbar_pos + scrollbar_height:
-                stdscr.addch(i, width - 1, '█', curses.color_pair(3))
-            else:
-                stdscr.addch(i, width - 1, '░', curses.color_pair(6))
-
     # Use noutrefresh/doupdate for faster rendering
     stdscr.noutrefresh()
 
