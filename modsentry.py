@@ -1167,6 +1167,7 @@ def monitor_log_file(stdscr, log_file_path):
                 stdscr.bkgd(' ', curses.color_pair(1))
                 stdscr.border(0)
                 draw_header(stdscr, width)
+                last_draw_state.clear()  # Clear cache to force full redraw
                 continue  # Continue the loop to refresh the main screen
 
 def display_help():
