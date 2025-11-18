@@ -606,10 +606,10 @@ def display_log_entries(stdscr, log_entries, current_line, selected_line, blocke
         is_blocked = ip.strip() in blocked_ips
 
         # Check if this line needs redraw (optimization)
-        # Note: Always redraw when selection state changes to prevent highlight bugs
-        cache_key = f"{entry_idx}:{entry}"
+        # Include is_selected in cache key so selection changes trigger redraw
+        cache_key = f"{entry_idx}:{is_selected}:{entry}"
         if cache_key in last_draw_state:
-            continue  # Skip redraw if entry content hasn't changed
+            continue  # Skip redraw if nothing has changed
 
         # Clear only the line we're about to update
         stdscr.move(idx, 1)
