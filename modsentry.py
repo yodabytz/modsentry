@@ -1097,6 +1097,12 @@ def monitor_log_file(stdscr, log_file_path):
                     # Show "Done!" message if successful
                     if "has been blocked" in message:
                         show_done_window(stdscr, "Done!")
+                # Refresh main screen after dialog closes (whether confirmed or cancelled)
+                stdscr.erase()
+                stdscr.bkgd(' ', curses.color_pair(1))
+                stdscr.border(0)
+                draw_header(stdscr, width)
+                last_draw_state.clear()
 
             elif char == ord('d'):  # Handle unblock command
                 parts = log_entries[selected_line].split('|')
@@ -1112,6 +1118,12 @@ def monitor_log_file(stdscr, log_file_path):
                     # Show "Done!" message if successful
                     if "has been unblocked" in message:
                         show_done_window(stdscr, "Done!")
+                # Refresh main screen after dialog closes (whether confirmed or cancelled)
+                stdscr.erase()
+                stdscr.bkgd(' ', curses.color_pair(1))
+                stdscr.border(0)
+                draw_header(stdscr, width)
+                last_draw_state.clear()
 
             elif char == ord('t'):  # Handle theme selection
                 try:
