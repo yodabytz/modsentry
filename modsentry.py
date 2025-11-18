@@ -1074,13 +1074,13 @@ def monitor_log_file(stdscr, log_file_path):
             elif char == curses.KEY_UP:
                 if selected_line > 0:
                     selected_line -= 1
-                    needs_full_redraw = False  # Just update display, don't full clear
+                    last_draw_state.clear()  # Clear cache to force redraw
                 if selected_line < current_line:
                     current_line = selected_line
             elif char == curses.KEY_DOWN:
                 if selected_line < len(log_entries) - 1:
                     selected_line += 1
-                    needs_full_redraw = False  # Just update display, don't full clear
+                    last_draw_state.clear()  # Clear cache to force redraw
                 if selected_line >= current_line + (height - 8):
                     current_line = selected_line - (height - 9)
             elif char == ord('b'):  # Handle block command
