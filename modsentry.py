@@ -49,6 +49,9 @@ SEVERITY_MAP = {
 current_theme = None
 theme_colors = {}
 
+# DNS lookup cache to avoid repeated slow lookups
+dns_cache = {}
+
 # Mapping of severity descriptions to color names
 SEVERITY_COLOR_MAP = {
     "Emergency": "severity_emergency",
@@ -564,22 +567,42 @@ def is_local_ip(ip_str):
     except (ValueError, IndexError):
         return False
 
-def get_domain_from_ip(ip_str):
-    """Get domain name from IP using reverse DNS lookup (with caching)."""
+def get_domain_from_ip(ip_str, enable_dns_lookup=False):
+    """Get domain name from IP using cached reverse DNS lookup.
+
+    Args:
+        ip_str: IP address to lookup
+        enable_dns_lookup: Set to True to enable reverse DNS (disabled by default for performance)
+    """
     ip_str = ip_str.strip()
-    if not ip_str or ip_str == 'N/A':
+    if not ip_str or ip_str == 'N/A' or not enable_dns_lookup:
         return ip_str
 
+    # Check cache first
+    if ip_str in dns_cache:
+        return dns_cache[ip_str]
+
     try:
-        # Try reverse DNS lookup - timeout after 1 second
+        # Try reverse DNS lookup - timeout after 0.5 seconds
+        socket.setdefaulttimeout(0.5)
         domain = socket.gethostbyaddr(ip_str)[0]
+        socket.setdefaulttimeout(None)
+
         # Return just the domain, not the full FQDN if it's very long
         if len(domain) > 20:
-            return domain.split('.')[-2] + '.' + domain.split('.')[-1]  # Return last two parts
-        return domain
+            result = domain.split('.')[-2] + '.' + domain.split('.')[-1]
+        else:
+            result = domain
+
+        # Cache the result
+        dns_cache[ip_str] = result
+        return result
     except (socket.herror, socket.timeout, OSError):
-        # If reverse DNS fails, return the IP
+        # Cache the failure (return IP)
+        dns_cache[ip_str] = ip_str
         return ip_str
+    finally:
+        socket.setdefaulttimeout(None)
 
 def display_log_entries(stdscr, log_entries, current_line, selected_line, blocked_ips, last_draw_state):
     """Display log entries with optimized rendering to reduce flicker."""
@@ -624,8 +647,8 @@ def display_log_entries(stdscr, log_entries, current_line, selected_line, blocke
 
         # Use different color pair for local vs remote IPs
         ip_color_pair = 17 if is_local_ip(ip) else 3  # 17 for local, 3 for remote
-        # Try to show domain name instead of IP, fallback to IP if reverse DNS fails
-        display_ip = get_domain_from_ip(ip.strip())
+        # Show IP address (reverse DNS disabled by default for performance)
+        display_ip = ip.strip()
         stdscr.addnstr(idx, start_x + 23, display_ip, 16, curses.color_pair(ip_color_pair) | (curses.A_REVERSE if is_selected else 0))
 
         stdscr.addnstr(idx, start_x + 40, host.strip(), 20, curses.color_pair(7) | (curses.A_REVERSE if is_selected else 0))
