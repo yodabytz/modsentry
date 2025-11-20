@@ -505,7 +505,8 @@ def parse_log_entry(entry):
         if ':' in host:
             host = host.split(':')[0]
     else:
-        host = 'N/A'
+        # Fallback to remote IP if no Host header found
+        host = remote_ip
 
     # Extract rule ID from section H
     rule_id_match = re.search(r'\[id "(\d+)"\]', entry)
