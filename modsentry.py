@@ -498,7 +498,7 @@ def parse_log_entry(entry):
     remote_ip = ip_match.group(1) if ip_match else 'N/A'
 
     # Extract host from the HTTP Host header (the target server being attacked)
-    host_match = re.search(r'^Host:\s*(.+)$', entry, re.MULTILINE)
+    host_match = re.search(r'^host:\s*(.+)$', entry, re.MULTILINE | re.IGNORECASE)
     if host_match:
         host = host_match.group(1).strip()
         # Remove port if present (e.g., "example.com:8080" -> "example.com")
