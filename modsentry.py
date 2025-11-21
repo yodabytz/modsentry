@@ -672,7 +672,7 @@ def display_log_entries(stdscr, log_entries, current_line, selected_line, blocke
         last_draw_state[cache_key] = entry
 
     # Add the block IP message at the bottom
-    footer_text = "Enter: More Info | 'b': Block IP | 'd': Unblock IP | 'i': Ignore Rule | 't': Theme | 'q': Quit | "
+    footer_text = "Enter: More Info | 'b': Block IP | 'd': Unblock IP | 'i': Ignore Rule | 'l': List Rules | 't': Theme | 'q': Quit | "
     stdscr.addstr(height - 3, 2, footer_text, curses.color_pair(1))
     stdscr.addstr(height - 3, 2 + len(footer_text), "● Blocked IP", curses.color_pair(8))
 
@@ -983,6 +983,73 @@ def show_theme_selection_window(stdscr):
         # If anything goes wrong, return None
         return None
 
+def show_ignored_rules_window(stdscr):
+    """Display a window showing all currently ignored rule IDs."""
+    max_y, max_x = stdscr.getmaxyx()
+
+    # Get the list of ignored rules
+    ignored_list = sorted(list(IGNORE_RULE_IDS))
+
+    if not ignored_list:
+        show_done_window(stdscr, "No rules are currently ignored")
+        return
+
+    # Calculate window size
+    win_height = min(len(ignored_list) + 6, max_y - 2)
+    win_width = min(40, max_x - 2)
+
+    win = curses.newwin(win_height, win_width, (max_y - win_height) // 2, (max_x - win_width) // 2)
+    win.keypad(True)
+    win.bkgd(' ', curses.color_pair(1))
+
+    scroll_offset = 0
+
+    while True:
+        try:
+            win.erase()
+            win.border(0)
+
+            # Add title
+            title = "Ignored Rules"
+            title_x = max(2, (win_width - len(title)) // 2)
+            win.addstr(0, title_x, title, curses.color_pair(1) | curses.A_BOLD)
+
+            # Display rules
+            for i, rule_id in enumerate(ignored_list[scroll_offset:]):
+                if i + 2 >= win_height - 2:
+                    break
+                y_pos = i + 2
+                rule_text = f"  {rule_id}"
+
+                if len(rule_text) > win_width - 4:
+                    rule_text = rule_text[:win_width - 7] + "..."
+
+                win.addstr(y_pos, 2, rule_text, curses.color_pair(1))
+
+            # Add instructions
+            instructions = "Press any key to close"
+            if len(instructions) > win_width - 4:
+                instructions = "Any key to close"
+            win.addstr(win_height - 2, 2, instructions, curses.color_pair(1))
+
+            win.refresh()
+
+            char = win.getch()
+
+            # Handle key presses
+            if char == curses.KEY_UP or char == ord('k'):
+                if scroll_offset > 0:
+                    scroll_offset -= 1
+            elif char == curses.KEY_DOWN or char == ord('j'):
+                if scroll_offset < len(ignored_list) - 1:
+                    scroll_offset += 1
+            else:
+                # Any other key closes the window
+                return
+
+        except curses.error:
+            continue
+
 def draw_header(stdscr, width):
     start_x = max(0, (width - 125) // 2)  # Adjusted for better fit
     stdscr.addstr(0, 2, "ModSentry 1.0", curses.color_pair(1) | curses.A_BOLD)  # Align to the left with a margin
@@ -1167,6 +1234,14 @@ def monitor_log_file(stdscr, log_file_path):
                 draw_header(stdscr, width)
                 continue
             elif char == ord('i'):  # Handle ignore rule command
+                if not log_entries:
+                    show_done_window(stdscr, "No entries to select")
+                    stdscr.erase()
+                    stdscr.bkgd(' ', curses.color_pair(1))
+                    stdscr.border(0)
+                    draw_header(stdscr, width)
+                    continue
+
                 # Get the rule ID from the selected entry
                 parts = log_entries[selected_line].split('|')
                 rule_id = parts[3].strip() if len(parts) > 3 else 'N/A'
@@ -1183,6 +1258,14 @@ def monitor_log_file(stdscr, log_file_path):
                 stdscr.bkgd(' ', curses.color_pair(1))
                 stdscr.border(0)
                 draw_header(stdscr, width)
+                continue
+            elif char == ord('l'):  # Handle list ignored rules command
+                show_ignored_rules_window(stdscr)
+                stdscr.erase()
+                stdscr.bkgd(' ', curses.color_pair(1))
+                stdscr.border(0)
+                draw_header(stdscr, width)
+                last_draw_state.clear()
                 continue
             elif char in (curses.KEY_ENTER, 10, 13):  # Handle Enter key
                 show_detailed_entry(stdscr, log_entries[selected_line])
@@ -1213,6 +1296,7 @@ Controls:
   b      Block the IP address of the selected entry
   d      Unblock the IP address of the selected entry
   i      Add rule ID to ignore list (won't display alerts for this rule)
+  l      List all currently ignored rule IDs
   t      Change theme (live theme switching)
   q      Quit the application
 
