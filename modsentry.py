@@ -13,6 +13,9 @@ import glob
 import argparse
 import socket
 from datetime import datetime
+import cProfile
+import pstats
+import io
 
 # Version
 VERSION = "1.5"
@@ -51,6 +54,38 @@ theme_colors = {}
 
 # DNS lookup cache to avoid repeated slow lookups
 dns_cache = {}
+
+# Debug profiler
+class LoopProfiler:
+    """Simple profiler to track time spent in different parts of the main loop."""
+    def __init__(self):
+        self.times = {}
+        self.counts = {}
+        self.start_time = None
+
+    def start(self, section):
+        self.start_time = time.time()
+
+    def end(self, section):
+        if self.start_time is None:
+            return
+        elapsed = time.time() - self.start_time
+        self.times[section] = self.times.get(section, 0) + elapsed
+        self.counts[section] = self.counts.get(section, 0) + 1
+
+    def report(self):
+        """Print profiling report to debug log."""
+        with open("/tmp/modsentry_debug.log", "a") as f:
+            f.write(f"\n=== Loop Profiler Report ===\n")
+            for section in ['select', 'process_entry', 'display', 'getch', 'other']:
+                if section in self.times:
+                    total = self.times[section]
+                    count = self.counts[section]
+                    avg = total / count if count > 0 else 0
+                    f.write(f"{section:20} Total: {total:8.3f}s Count: {count:6d} Avg: {avg*1000:6.2f}ms\n")
+            f.write(f"==========================\n")
+
+profiler = LoopProfiler()
 
 # Mapping of severity descriptions to color names
 SEVERITY_COLOR_MAP = {
@@ -1116,9 +1151,17 @@ def monitor_log_file(stdscr, log_file_path):
         blocked_ips = set()
         last_blocked_ips_update = 0
 
+        loop_count = 0
+        last_log_time = time.time()
+
         while True:
+            loop_count += 1
+            loop_start_time = time.time()
+
             # Use select to wait for new data or a timeout
+            profiler.start('select')
             rlist, _, _ = select.select([log_file], [], [], 0.1)  # 100ms timeout for responsiveness
+            profiler.end('select')
             has_new_data = False
 
             if log_file in rlist:
@@ -1130,7 +1173,10 @@ def monitor_log_file(stdscr, log_file_path):
                         entry = buffer
                         buffer = ''
                         # Process the entry
+                        profiler.start('process_entry')
                         remote_date, remote_ip, host, rule_id, attack_name, severity, response_code, payload, info, additional_info = parse_log_entry(entry)
+                        profiler.end('process_entry')
+
                         if rule_id != 'N/A' and rule_id not in IGNORE_RULE_IDS:
                             formatted_entry = format_entry(remote_date, remote_ip, host, rule_id, attack_name, severity, response_code, payload, info, additional_info)
                             log_entries.append(formatted_entry)
@@ -1142,6 +1188,7 @@ def monitor_log_file(stdscr, log_file_path):
                             needs_display_update = True  # Mark display for update
                             last_draw_state.clear()  # Clear cache on new entries
                             has_new_data = True
+                            last_log_time = time.time()
 
             # Update blocked_ips every 5 seconds
             current_time = time.time()
@@ -1160,13 +1207,21 @@ def monitor_log_file(stdscr, log_file_path):
 
             # Display the last entries that fit the screen height (only if needed)
             if needs_display_update:
+                profiler.start('display')
                 display_log_entries(stdscr, log_entries, current_line, selected_line, blocked_ips, last_draw_state)
                 # Use doupdate for atomic refresh
                 curses.doupdate()
+                profiler.end('display')
                 needs_display_update = False
 
+            # Periodically dump profiler stats
+            if loop_count % 1000 == 0:
+                profiler.report()
+
             # Handle scrolling and quitting (non-blocking)
+            profiler.start('getch')
             char = stdscr.getch()
+            profiler.end('getch')
             if char == ord('q'):
                 return
             elif char == curses.KEY_UP:
@@ -1292,6 +1347,12 @@ def monitor_log_file(stdscr, log_file_path):
                 last_draw_state.clear()  # Clear cache to force full redraw
                 needs_display_update = True
                 continue  # Continue the loop to refresh the main screen
+
+            # Add a small sleep when idle to prevent busy-waiting
+            # This prevents 100% CPU usage when there's no new data or user input
+            if char == -1 and not has_new_data:
+                # No input and no new log data - safe to sleep briefly
+                time.sleep(0.01)  # 10ms sleep to reduce CPU usage
 
 def display_help():
     available_themes = get_available_themes()
