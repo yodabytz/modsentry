@@ -716,7 +716,8 @@ def display_log_entries(stdscr, log_entries, current_line, selected_line, blocke
 
 def format_entry(remote_date, remote_ip, host, rule_id, attack_name, severity, response_code, payload, info, additional_info):
     # Concatenate fields into a string with fixed-width columns using '|' as a separator
-    return f"{remote_date:<22}|{remote_ip:<16}|{host:<20}|{rule_id:<8}|{attack_name:<40}|{severity:<9}|{response_code:<9}|{payload[:20]}|{info[:20]}|{additional_info[:20]}"
+    # Column widths must match header: Date(22) IP(16) Host(20) Rule(8) Attack(37) Severity(9) Resp(8)
+    return f"{remote_date:<22}|{remote_ip:<16}|{host:<20}|{rule_id:<8}|{attack_name:<37}|{severity:<9}|{response_code:<8}|{payload[:20]}|{info[:20]}|{additional_info[:20]}"
 
 def init_colors():
     global theme_colors
