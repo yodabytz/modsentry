@@ -1097,6 +1097,7 @@ def monitor_log_file(stdscr, log_file_path):
     selected_line = 0
     last_draw_state = {}  # Cache for rendering optimization
     needs_full_redraw = True  # Flag for full screen redraw
+    needs_display_update = True  # Flag to track if display needs updating
 
     check_iptables_chain()  # Ensure the ModSentry chain is ready
 
@@ -1117,7 +1118,9 @@ def monitor_log_file(stdscr, log_file_path):
 
         while True:
             # Use select to wait for new data or a timeout
-            rlist, _, _ = select.select([log_file], [], [], 0.05)  # Faster timeout for responsiveness
+            rlist, _, _ = select.select([log_file], [], [], 0.1)  # 100ms timeout for responsiveness
+            has_new_data = False
+
             if log_file in rlist:
                 line = log_file.readline()
                 if line:
@@ -1136,13 +1139,16 @@ def monitor_log_file(stdscr, log_file_path):
                             current_line = max(0, len(log_entries) - (height - 8))
                             selected_line = len(log_entries) - 1
                             needs_full_redraw = True  # Mark for redraw on new entry
+                            needs_display_update = True  # Mark display for update
                             last_draw_state.clear()  # Clear cache on new entries
+                            has_new_data = True
 
             # Update blocked_ips every 5 seconds
             current_time = time.time()
             if current_time - last_blocked_ips_update > 5:
                 blocked_ips = {line.split()[3] for line in subprocess.run(['iptables', '-L', 'ModSentry', '-n'], capture_output=True, text=True).stdout.splitlines() if line.startswith("DROP")}
                 last_blocked_ips_update = current_time
+                needs_display_update = True  # Update display when blocked IPs change
 
             # Full redraw only when needed
             if needs_full_redraw:
@@ -1152,11 +1158,12 @@ def monitor_log_file(stdscr, log_file_path):
                 draw_header(stdscr, width)
                 needs_full_redraw = False
 
-            # Display the last entries that fit the screen height
-            display_log_entries(stdscr, log_entries, current_line, selected_line, blocked_ips, last_draw_state)
-
-            # Use doupdate for atomic refresh
-            curses.doupdate()
+            # Display the last entries that fit the screen height (only if needed)
+            if needs_display_update:
+                display_log_entries(stdscr, log_entries, current_line, selected_line, blocked_ips, last_draw_state)
+                # Use doupdate for atomic refresh
+                curses.doupdate()
+                needs_display_update = False
 
             # Handle scrolling and quitting (non-blocking)
             char = stdscr.getch()
@@ -1166,12 +1173,14 @@ def monitor_log_file(stdscr, log_file_path):
                 if selected_line > 0:
                     selected_line -= 1
                     last_draw_state.clear()  # Clear cache to force redraw
+                    needs_display_update = True
                 if selected_line < current_line:
                     current_line = selected_line
             elif char == curses.KEY_DOWN:
                 if selected_line < len(log_entries) - 1:
                     selected_line += 1
                     last_draw_state.clear()  # Clear cache to force redraw
+                    needs_display_update = True
                 if selected_line >= current_line + (height - 8):
                     current_line = selected_line - (height - 9)
             elif char == ord('b'):  # Handle block command
@@ -1194,6 +1203,7 @@ def monitor_log_file(stdscr, log_file_path):
                 stdscr.border(0)
                 draw_header(stdscr, width)
                 last_draw_state.clear()
+                needs_display_update = True
 
             elif char == ord('d'):  # Handle unblock command
                 parts = log_entries[selected_line].split('|')
@@ -1215,6 +1225,7 @@ def monitor_log_file(stdscr, log_file_path):
                 stdscr.border(0)
                 draw_header(stdscr, width)
                 last_draw_state.clear()
+                needs_display_update = True
 
             elif char == ord('t'):  # Handle theme selection
                 try:
@@ -1232,6 +1243,7 @@ def monitor_log_file(stdscr, log_file_path):
                 stdscr.bkgd(' ', curses.color_pair(1))
                 stdscr.border(0)
                 draw_header(stdscr, width)
+                needs_display_update = True
                 continue
             elif char == ord('i'):  # Handle ignore rule command
                 if not log_entries:
@@ -1240,6 +1252,7 @@ def monitor_log_file(stdscr, log_file_path):
                     stdscr.bkgd(' ', curses.color_pair(1))
                     stdscr.border(0)
                     draw_header(stdscr, width)
+                    needs_display_update = True
                     continue
 
                 # Get the rule ID from the selected entry
@@ -1258,6 +1271,7 @@ def monitor_log_file(stdscr, log_file_path):
                 stdscr.bkgd(' ', curses.color_pair(1))
                 stdscr.border(0)
                 draw_header(stdscr, width)
+                needs_display_update = True
                 continue
             elif char == ord('l'):  # Handle list ignored rules command
                 show_ignored_rules_window(stdscr)
@@ -1266,6 +1280,7 @@ def monitor_log_file(stdscr, log_file_path):
                 stdscr.border(0)
                 draw_header(stdscr, width)
                 last_draw_state.clear()
+                needs_display_update = True
                 continue
             elif char in (curses.KEY_ENTER, 10, 13):  # Handle Enter key
                 show_detailed_entry(stdscr, log_entries[selected_line])
@@ -1275,6 +1290,7 @@ def monitor_log_file(stdscr, log_file_path):
                 stdscr.border(0)
                 draw_header(stdscr, width)
                 last_draw_state.clear()  # Clear cache to force full redraw
+                needs_display_update = True
                 continue  # Continue the loop to refresh the main screen
 
 def display_help():
