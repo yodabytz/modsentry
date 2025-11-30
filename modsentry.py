@@ -688,13 +688,13 @@ def display_log_entries(stdscr, log_entries, current_line, selected_line, blocke
         stdscr.addnstr(idx, start_x + 23, display_ip, 16, curses.color_pair(ip_color_pair) | (curses.A_REVERSE if is_selected else 0))
 
         stdscr.addnstr(idx, start_x + 40, host.strip(), 20, curses.color_pair(7) | (curses.A_REVERSE if is_selected else 0))
-        stdscr.addnstr(idx, start_x + 60, rule_id.strip(), 8, curses.color_pair(4) | (curses.A_REVERSE if is_selected else 0))
-        stdscr.addnstr(idx, start_x + 69, attack_name.strip(), 37, curses.color_pair(1) | (curses.A_REVERSE if is_selected else 0))
+        stdscr.addnstr(idx, start_x + 61, rule_id.strip(), 8, curses.color_pair(4) | (curses.A_REVERSE if is_selected else 0))
+        stdscr.addnstr(idx, start_x + 70, attack_name.strip(), 37, curses.color_pair(1) | (curses.A_REVERSE if is_selected else 0))
 
         # Apply appropriate color to the severity
         severity_color_name = SEVERITY_COLOR_MAP.get(severity.strip(), "severity_info")
         severity_color_pair = get_color_pair_for_severity(severity_color_name)
-        severity_pos = start_x + 107
+        severity_pos = start_x + 108
         response_pos = start_x + 117
 
         if severity_pos + 9 <= max_width:
