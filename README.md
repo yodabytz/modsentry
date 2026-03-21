@@ -1,4 +1,4 @@
-## ModSentry 1.5
+## ModSentry 1.5.1
 
 ModSentry is a real-time log monitoring tool for analyzing security events from ModSecurity logs. It provides an intuitive terminal interface to track alerts and highlight critical incidents. IP addresses can be blocked or unblocked using `iptables` directly from the interface. Features production-ready security capabilities including audit trail logging, persistent IP blocks that survive reboots, and compliance-ready configurations. For this script to work, ModSecurity must be set to Serial logging. Theme support with truecolor is now available.
 
