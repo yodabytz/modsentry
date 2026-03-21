@@ -4,22 +4,22 @@
   "truecolor": true,
   "colors": {
     "background": "#222436",
-    "title_attack": "#86E1FC",
+    "title_attack": "#82AAFF",
     "date": "#C3E88D",
-    "ip_address": "#FFC777",
+    "ip_address": "#FCA7EA",
     "rule_id": "#C8D3F5",
-    "response_code": "#828BB8",
+    "response_code": "#636DA6",
     "severity_base": "#82AAFF",
-    "host": "#FF966C",
+    "host": "#C099FF",
     "blocked_indicator": "#FF757F",
-    "severity_emergency": "#C53B53",
+    "severity_emergency": "#FF757F",
     "severity_alert": "#FF757F",
-    "severity_critical": "#C53B53",
-    "severity_error": "#FF966C",
-    "severity_warning": "#FFC777",
-    "severity_notice": "#C099FF",
+    "severity_critical": "#FF757F",
+    "severity_error": "#FCA7EA",
+    "severity_warning": "#C099FF",
+    "severity_notice": "#82AAFF",
     "severity_info": "#C3E88D",
-    "severity_debug": "#86E1FC",
-    "local_ip_address": "#4FD6BE"
+    "severity_debug": "#636DA6",
+    "local_ip_address": "#C3E88D"
   }
 }
