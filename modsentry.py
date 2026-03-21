@@ -7,7 +7,6 @@ import os
 import subprocess
 import sys
 import whois
-import select
 import json
 import glob
 import argparse
@@ -16,6 +15,7 @@ from datetime import datetime
 import cProfile
 import pstats
 import io
+import tempfile
 
 # Version
 VERSION = "1.5"
@@ -35,6 +35,17 @@ MIN_HEIGHT = 24
 MAX_ENTRIES = 200
 THEME_DIR = "/etc/modsentry/themes"
 DEFAULT_THEME = "default"
+
+# Strict IP address validation pattern
+IP_REGEX = re.compile(r'^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$')
+
+def is_valid_ip(ip_str):
+    """Validate that a string is a legitimate IPv4 address."""
+    ip_str = ip_str.strip()
+    if not IP_REGEX.match(ip_str):
+        return False
+    parts = ip_str.split('.')
+    return all(0 <= int(p) <= 255 for p in parts)
 
 # Mapping of severity numbers to descriptions
 SEVERITY_MAP = {
@@ -75,7 +86,12 @@ class LoopProfiler:
 
     def report(self):
         """Print profiling report to debug log."""
-        with open("/tmp/modsentry_debug.log", "a") as f:
+        debug_log = "/var/log/modsentry_debug.log"
+        try:
+            fd = os.open(debug_log, os.O_WRONLY | os.O_CREAT | os.O_APPEND | os.O_NOFOLLOW, 0o600)
+        except OSError:
+            return
+        with os.fdopen(fd, "a") as f:
             f.write(f"\n=== Loop Profiler Report ===\n")
             for section in ['select', 'process_entry', 'display', 'getch', 'other']:
                 if section in self.times:
@@ -121,25 +137,28 @@ def load_config():
                 key = key.strip()
                 value = value.strip()
 
-                if key == 'log_file':
-                    LOG_FILE_PATH = value
-                elif key == 'audit_log':
-                    AUDIT_LOG_PATH = value
-                elif key == 'blocked_ips_file':
-                    BLOCKED_IPS_FILE = value
-                elif key == 'whitelist_file':
-                    WHITELIST_FILE = value
-                elif key == 'min_width':
-                    MIN_WIDTH = int(value)
-                elif key == 'min_height':
-                    MIN_HEIGHT = int(value)
-                elif key == 'max_entries':
-                    MAX_ENTRIES = int(value)
-                elif key == 'theme_dir':
-                    THEME_DIR = value
-                elif key == 'default_theme':
-                    DEFAULT_THEME = value
-    except Exception as e:
+                try:
+                    if key == 'log_file':
+                        LOG_FILE_PATH = value
+                    elif key == 'audit_log':
+                        AUDIT_LOG_PATH = value
+                    elif key == 'blocked_ips_file':
+                        BLOCKED_IPS_FILE = value
+                    elif key == 'whitelist_file':
+                        WHITELIST_FILE = value
+                    elif key == 'min_width':
+                        MIN_WIDTH = int(value)
+                    elif key == 'min_height':
+                        MIN_HEIGHT = int(value)
+                    elif key == 'max_entries':
+                        MAX_ENTRIES = int(value)
+                    elif key == 'theme_dir':
+                        THEME_DIR = value
+                    elif key == 'default_theme':
+                        DEFAULT_THEME = value
+                except (ValueError, TypeError):
+                    pass  # Skip malformed values, continue parsing
+    except Exception:
         pass  # Use defaults on error
 
 def load_ignore_rules():
@@ -204,18 +223,18 @@ def save_blocked_ip_to_file(ip):
         # Ensure directory exists
         os.makedirs(os.path.dirname(BLOCKED_IPS_FILE), exist_ok=True)
 
-        # Check if IP already in file
+        # Check if IP already in file (line-by-line to avoid substring match)
         if os.path.exists(BLOCKED_IPS_FILE):
             with open(BLOCKED_IPS_FILE, 'r') as f:
-                existing = f.read()
-                if ip in existing:
-                    return  # Already saved
+                for line in f:
+                    if line.strip() == ip:
+                        return  # Already saved
 
         # Append IP to file
         with open(BLOCKED_IPS_FILE, 'a') as f:
             f.write(f"{ip}\n")
-    except Exception as e:
-        pass  # Silently fail
+    except Exception:
+        pass
 
 def remove_blocked_ip_from_file(ip):
     """Remove a blocked IP from the persistent file."""
@@ -243,7 +262,7 @@ def restore_blocked_ips_from_file():
         with open(BLOCKED_IPS_FILE, 'r') as f:
             for line in f:
                 ip = line.strip()
-                if ip and not line.startswith('#'):
+                if ip and not line.startswith('#') and is_valid_ip(ip):
                     # Check if already in iptables
                     if not is_ip_blocked(ip):
                         try:
@@ -276,11 +295,16 @@ def hex_to_rgb(hex_color):
     hex_color = hex_color.lstrip('#')
     return tuple(int(hex_color[i:i+2], 16) for i in (0, 2, 4))
 
-def load_theme(theme_name):
+def load_theme(theme_name, _recursion_guard=False):
     """Load a theme from the themes directory."""
     global current_theme, theme_colors
-    
+
+    # Sanitize theme name to prevent path traversal
+    theme_name = os.path.basename(theme_name).replace('..', '')
     theme_file = os.path.join(THEME_DIR, f"{theme_name}.json")
+    # Verify resolved path stays within THEME_DIR
+    if not os.path.realpath(theme_file).startswith(os.path.realpath(THEME_DIR)):
+        theme_file = os.path.join(THEME_DIR, f"{DEFAULT_THEME}.json")
     
     if not os.path.exists(theme_file):
         # Fallback to default theme
@@ -318,8 +342,29 @@ def load_theme(theme_name):
             
         current_theme = theme_data['name']
     except (json.JSONDecodeError, KeyError, IOError) as e:
-        # Fallback to built-in colors on error
-        load_theme(DEFAULT_THEME)
+        if not _recursion_guard:
+            load_theme(DEFAULT_THEME, _recursion_guard=True)
+        else:
+            # Both requested and default theme failed - use hardcoded fallback
+            theme_colors = {
+                "title_attack": (0, 255, 255),
+                "date": (0, 255, 0),
+                "ip_address": (255, 255, 0),
+                "rule_id": (255, 255, 255),
+                "response_code": (255, 255, 255),
+                "severity_base": (0, 0, 255),
+                "host": (255, 255, 0),
+                "blocked_indicator": (255, 0, 0),
+                "severity_emergency": (255, 0, 0),
+                "severity_alert": (255, 0, 0),
+                "severity_critical": (255, 0, 0),
+                "severity_error": (255, 0, 0),
+                "severity_warning": (255, 255, 0),
+                "severity_notice": (0, 0, 255),
+                "severity_info": (0, 255, 0),
+                "severity_debug": (0, 255, 255)
+            }
+            current_theme = "builtin"
 
 def get_available_themes():
     """Get list of available theme names."""
@@ -460,7 +505,7 @@ def get_whois_info(ip_address):
     except Exception as e:
         # Fallback to running the whois command directly if there's an issue
         try:
-            result = subprocess.run(['whois', ip_address], capture_output=True, text=True)
+            result = subprocess.run(['whois', ip_address], capture_output=True, text=True, timeout=10)
             return result.stdout.strip()
         except Exception as fallback_e:
             return f"Whois lookup failed: {str(fallback_e)}"
@@ -482,14 +527,21 @@ def check_iptables_chain():
 
 def is_ip_blocked(ip):
     """Check if the given IP is already blocked in the ModSentry chain."""
+    ip = ip.strip()
     result = subprocess.run(['iptables', '-L', 'ModSentry', '-n'], capture_output=True, text=True)
-    return ip in result.stdout
+    for line in result.stdout.splitlines():
+        parts = line.split()
+        if len(parts) >= 4 and parts[0] == 'DROP' and parts[3] == ip:
+            return True
+    return False
 
 def block_ip(ip, rule_id="", attack_name=""):
     """Block the given IP address using iptables with audit logging and persistence."""
     try:
-        # Trim whitespace from the IP address
+        # Trim and validate the IP address
         ip = ip.strip()
+        if not is_valid_ip(ip):
+            return f"Invalid IP address: {ip}"
         if not is_ip_blocked(ip):
             subprocess.run(['iptables', '-A', 'ModSentry', '-s', ip, '-j', 'DROP'], check=True)
             # Save to persistent file
@@ -507,8 +559,10 @@ def block_ip(ip, rule_id="", attack_name=""):
 def unblock_ip(ip, rule_id="", attack_name=""):
     """Unblock the given IP address using iptables with audit logging and persistence."""
     try:
-        # Trim whitespace from the IP address
+        # Trim and validate the IP address
         ip = ip.strip()
+        if not is_valid_ip(ip):
+            return f"Invalid IP address: {ip}"
         if is_ip_blocked(ip):
             subprocess.run(['iptables', '-D', 'ModSentry', '-s', ip, '-j', 'DROP'], check=True)
             # Remove from persistent file
@@ -651,7 +705,7 @@ def display_log_entries(stdscr, log_entries, current_line, selected_line, blocke
     # Only redraw lines that changed
     for idx, entry in enumerate(log_entries[current_line:current_line + height - 8], start=4):
         # Split the formatted entry into its components
-        parts = entry.split('|')
+        parts = entry.split(FIELD_SEP)
         if len(parts) != 10:
             continue
 
@@ -714,10 +768,15 @@ def display_log_entries(stdscr, log_entries, current_line, selected_line, blocke
     # Use noutrefresh/doupdate for faster rendering
     stdscr.noutrefresh()
 
+FIELD_SEP = "\x1f"  # Unit separator - safe delimiter that won't appear in log fields
+
 def format_entry(remote_date, remote_ip, host, rule_id, attack_name, severity, response_code, payload, info, additional_info):
-    # Concatenate fields into a string with fixed-width columns using '|' as a separator
+    # Concatenate fields into a string with fixed-width columns using unit separator
     # Column widths must match header: Date(22) IP(16) Host(20) Rule(8) Attack(37) Severity(9) Resp(8)
-    return f"{remote_date:<22}|{remote_ip:<16}|{host:<20}|{rule_id:<8}|{attack_name:<37}|{severity:<9}|{response_code:<8}|{payload[:20]}|{info[:20]}|{additional_info[:20]}"
+    # Strip any stray unit separators from fields to prevent splitting issues
+    fields = [remote_date, remote_ip, host, rule_id, attack_name, severity, response_code, payload, info, additional_info]
+    fields = [f.replace(FIELD_SEP, ' ') for f in fields]
+    return f"{fields[0]:<22}{FIELD_SEP}{fields[1]:<16}{FIELD_SEP}{fields[2]:<20}{FIELD_SEP}{fields[3]:<8}{FIELD_SEP}{fields[4]:<37}{FIELD_SEP}{fields[5]:<9}{FIELD_SEP}{fields[6]:<8}{FIELD_SEP}{fields[7][:20]}{FIELD_SEP}{fields[8][:20]}{FIELD_SEP}{fields[9][:20]}"
 
 def init_colors():
     global theme_colors
@@ -824,7 +883,7 @@ def show_detailed_entry(stdscr, entry):
     stdscr.bkgd(' ', curses.color_pair(1))  # Set background
     stdscr.border(0)
 
-    date, ip, host, rule_id, attack_name, severity, response_code, payload, info, additional_info = entry.split('|')
+    date, ip, host, rule_id, attack_name, severity, response_code, payload, info, additional_info = entry.split(FIELD_SEP)
 
     # Process Info section
     info = info.replace('[', '').replace(']', '').strip()
@@ -1088,13 +1147,15 @@ def show_ignored_rules_window(stdscr):
 
 def draw_header(stdscr, width):
     start_x = max(0, (width - 125) // 2)  # Adjusted for better fit
-    stdscr.addstr(0, 2, "ModSentry 1.0", curses.color_pair(1) | curses.A_BOLD)  # Align to the left with a margin
+    stdscr.addstr(0, 2, f"ModSentry {VERSION}", curses.color_pair(1) | curses.A_BOLD)  # Align to the left with a margin
     stdscr.addstr(1, 2, "by Yodabytz", curses.color_pair(1) | curses.A_BOLD)    # Author name
     stdscr.addstr(2, (width - len("ModSecurity Log Monitor (Press 'q' to quit)")) // 2, "ModSecurity Log Monitor (Press 'q' to quit)", curses.color_pair(1) | curses.A_BOLD)
     stdscr.addstr(3, start_x, f"{'Date':^22} {'IP Address':^16} {'Host':^20} {'Rule ID':^8} {'Attack Name':^37} {'Severity':^9} {'Resp':^8}", curses.color_pair(1) | curses.A_UNDERLINE)
 
 def read_last_entries(log_file_path, max_bytes=102400, max_entries=10):
     """Read the last entries from the log file."""
+    if not os.path.exists(log_file_path):
+        return []
     with open(log_file_path, 'rb') as f:
         try:
             f.seek(-max_bytes, os.SEEK_END)
@@ -1137,6 +1198,9 @@ def monitor_log_file(stdscr, log_file_path):
 
     check_iptables_chain()  # Ensure the ModSentry chain is ready
 
+    # Load whitelist of trusted IPs that should not be blocked
+    whitelist = load_whitelist()
+
     # Read the last entries
     last_entries = read_last_entries(log_file_path, max_entries=10)
     for entry in last_entries:
@@ -1146,55 +1210,67 @@ def monitor_log_file(stdscr, log_file_path):
             log_entries.append(formatted_entry)
 
     # Open the log file and seek to the end
-    with open(log_file_path, 'r', encoding='latin1') as log_file:
-        log_file.seek(0, os.SEEK_END)
-        buffer = ''
-        blocked_ips = set()
-        last_blocked_ips_update = 0
+    log_file = open(log_file_path, 'r', encoding='latin1')
+    log_file.seek(0, os.SEEK_END)
+    log_file_inode = os.fstat(log_file.fileno()).st_ino
+    buffer = ''
+    blocked_ips = set()
+    last_blocked_ips_update = 0
 
-        loop_count = 0
-        last_log_time = time.time()
+    loop_count = 0
+    last_log_time = time.time()
 
+    try:
         while True:
             loop_count += 1
             loop_start_time = time.time()
 
-            # Use select to wait for new data or a timeout
+            # Detect log file rotation (inode change)
+            try:
+                current_inode = os.stat(log_file_path).st_ino
+                if current_inode != log_file_inode:
+                    log_file.close()
+                    log_file = open(log_file_path, 'r', encoding='latin1')
+                    log_file_inode = current_inode
+                    buffer = ''
+            except OSError:
+                pass  # File temporarily unavailable during rotation
+
+            # Read new data (select on regular files always returns ready on Linux)
             profiler.start('select')
-            rlist, _, _ = select.select([log_file], [], [], 0.1)  # 100ms timeout for responsiveness
+            time.sleep(0.1)  # 100ms poll interval
             profiler.end('select')
             has_new_data = False
 
-            if log_file in rlist:
-                line = log_file.readline()
-                if line:
-                    buffer += line
-                    if re.match(r'^--[-\w]+---Z--', line.strip()):
-                        # End of an entry
-                        entry = buffer
-                        buffer = ''
-                        # Process the entry
-                        profiler.start('process_entry')
-                        remote_date, remote_ip, host, rule_id, attack_name, severity, response_code, payload, info, additional_info = parse_log_entry(entry)
-                        profiler.end('process_entry')
+            line = log_file.readline()
+            if line:
+                buffer += line
+                if re.match(r'^--[-\w]+---Z--', line.strip()):
+                    # End of an entry
+                    entry = buffer
+                    buffer = ''
+                    # Process the entry
+                    profiler.start('process_entry')
+                    remote_date, remote_ip, host, rule_id, attack_name, severity, response_code, payload, info, additional_info = parse_log_entry(entry)
+                    profiler.end('process_entry')
 
-                        if rule_id != 'N/A' and rule_id not in IGNORE_RULE_IDS:
-                            formatted_entry = format_entry(remote_date, remote_ip, host, rule_id, attack_name, severity, response_code, payload, info, additional_info)
-                            log_entries.append(formatted_entry)
-                            log_entries = log_entries[-MAX_ENTRIES:]  # Keep only the last MAX_ENTRIES entries
-                            # Auto-scroll to the bottom when new entries arrive
-                            current_line = max(0, len(log_entries) - (height - 8))
-                            selected_line = len(log_entries) - 1
-                            needs_full_redraw = True  # Mark for redraw on new entry
-                            needs_display_update = True  # Mark display for update
-                            last_draw_state.clear()  # Clear cache on new entries
-                            has_new_data = True
-                            last_log_time = time.time()
+                    if rule_id != 'N/A' and rule_id not in IGNORE_RULE_IDS:
+                        formatted_entry = format_entry(remote_date, remote_ip, host, rule_id, attack_name, severity, response_code, payload, info, additional_info)
+                        log_entries.append(formatted_entry)
+                        log_entries = log_entries[-MAX_ENTRIES:]  # Keep only the last MAX_ENTRIES entries
+                        # Auto-scroll to the bottom when new entries arrive
+                        current_line = max(0, len(log_entries) - (height - 8))
+                        selected_line = len(log_entries) - 1
+                        needs_full_redraw = True  # Mark for redraw on new entry
+                        needs_display_update = True  # Mark display for update
+                        last_draw_state.clear()  # Clear cache on new entries
+                        has_new_data = True
+                        last_log_time = time.time()
 
             # Update blocked_ips every 5 seconds
             current_time = time.time()
             if current_time - last_blocked_ips_update > 5:
-                blocked_ips = {line.split()[3] for line in subprocess.run(['iptables', '-L', 'ModSentry', '-n'], capture_output=True, text=True).stdout.splitlines() if line.startswith("DROP")}
+                blocked_ips = {ln.split()[3] for ln in subprocess.run(['iptables', '-L', 'ModSentry', '-n'], capture_output=True, text=True).stdout.splitlines() if ln.startswith("DROP") and len(ln.split()) >= 4}
                 last_blocked_ips_update = current_time
                 needs_display_update = True  # Update display when blocked IPs change
 
@@ -1225,6 +1301,12 @@ def monitor_log_file(stdscr, log_file_path):
             profiler.end('getch')
             if char == ord('q'):
                 return
+            elif char == curses.KEY_RESIZE:
+                height, width = stdscr.getmaxyx()
+                needs_full_redraw = True
+                needs_display_update = True
+                last_draw_state.clear()
+                continue
             elif char == curses.KEY_UP:
                 if selected_line > 0:
                     selected_line -= 1
@@ -1240,8 +1322,19 @@ def monitor_log_file(stdscr, log_file_path):
                 if selected_line >= current_line + (height - 8):
                     current_line = selected_line - (height - 9)
             elif char == ord('b'):  # Handle block command
-                parts = log_entries[selected_line].split('|')
+                if not log_entries or selected_line >= len(log_entries):
+                    continue
+                parts = log_entries[selected_line].split(FIELD_SEP)
                 _, ip, _, rule_id, attack_name, _, _, _, _, _ = parts
+                if ip.strip() in whitelist:
+                    show_done_window(stdscr, f"IP {ip.strip()} is whitelisted - cannot block")
+                    stdscr.erase()
+                    stdscr.bkgd(' ', curses.color_pair(1))
+                    stdscr.border(0)
+                    draw_header(stdscr, width)
+                    last_draw_state.clear()
+                    needs_display_update = True
+                    continue
                 if show_confirmation_window(stdscr, f"Block IP {ip.strip()}?"):
                     stdscr.addstr(height - 3, 2, f"Blocking IP {ip}...                        ", curses.color_pair(1))
                     stdscr.refresh()
@@ -1262,7 +1355,9 @@ def monitor_log_file(stdscr, log_file_path):
                 needs_display_update = True
 
             elif char == ord('d'):  # Handle unblock command
-                parts = log_entries[selected_line].split('|')
+                if not log_entries or selected_line >= len(log_entries):
+                    continue
+                parts = log_entries[selected_line].split(FIELD_SEP)
                 _, ip, _, rule_id, attack_name, _, _, _, _, _ = parts
                 if show_confirmation_window(stdscr, f"Unblock IP {ip.strip()}?"):
                     stdscr.addstr(height - 3, 2, f"Unblocking IP {ip}...                        ", curses.color_pair(1))
@@ -1312,7 +1407,7 @@ def monitor_log_file(stdscr, log_file_path):
                     continue
 
                 # Get the rule ID from the selected entry
-                parts = log_entries[selected_line].split('|')
+                parts = log_entries[selected_line].split(FIELD_SEP)
                 rule_id = parts[3].strip() if len(parts) > 3 else 'N/A'
 
                 if rule_id != 'N/A':
@@ -1339,6 +1434,8 @@ def monitor_log_file(stdscr, log_file_path):
                 needs_display_update = True
                 continue
             elif char in (curses.KEY_ENTER, 10, 13):  # Handle Enter key
+                if not log_entries or selected_line >= len(log_entries):
+                    continue
                 show_detailed_entry(stdscr, log_entries[selected_line])
                 stdscr.erase()  # Use erase to clear without flicker
                 # Restore background color after detailed view
@@ -1354,6 +1451,8 @@ def monitor_log_file(stdscr, log_file_path):
             if char == -1 and not has_new_data:
                 # No input and no new log data - safe to sleep briefly
                 time.sleep(0.01)  # 10ms sleep to reduce CPU usage
+    finally:
+        log_file.close()
 
 def display_help():
     available_themes = get_available_themes()

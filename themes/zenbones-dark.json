@@ -20,6 +20,6 @@
     "severity_notice": "#D2A6FF",
     "severity_info": "#8BAE68",
     "severity_debug": "#6099C0",
-    "local_ip_address": "#00FFFF"
+    "local_ip_address": "#6099C0"
   }
 }
