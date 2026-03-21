@@ -66,6 +66,18 @@ def _osc_reset_default_bg():
     except Exception:
         pass
 
+def _supports_truecolor():
+    """Check if terminal supports truecolor via COLORTERM env var."""
+    ct = (os.environ.get("COLORTERM") or "").lower()
+    term = (os.environ.get("TERM") or "").lower()
+    if "truecolor" in ct or "24bit" in ct:
+        return True
+    if term.endswith("-direct"):
+        return True
+    if os.environ.get("TMUX") and ("-256color" in term or term.endswith("-direct")):
+        return True
+    return False
+
 # Mapping of severity numbers to descriptions
 SEVERITY_MAP = {
     "0": "Emergency",
@@ -458,58 +470,42 @@ def reinitialize_colors_with_theme(theme_name):
         # Load the new theme
         load_theme(theme_name)
 
-        # Set terminal background via OSC escape
-        if "background" in theme_colors:
-            bg_r, bg_g, bg_b = theme_colors["background"]
-            _osc_set_default_bg(f"#{bg_r:02x}{bg_g:02x}{bg_b:02x}")
+        color_pair_map = {
+            "title_attack": 1, "date": 2, "ip_address": 3, "local_ip_address": 17,
+            "rule_id": 4, "response_code": 5, "severity_base": 6, "host": 7,
+            "blocked_indicator": 8, "severity_emergency": 9, "severity_alert": 10,
+            "severity_critical": 11, "severity_error": 12, "severity_warning": 13,
+            "severity_notice": 14, "severity_info": 15, "severity_debug": 16
+        }
 
-        # Check if terminal supports truecolor
-        if curses.can_change_color() and curses.COLORS >= 256:
-            # Update background color
+        truecolor = _supports_truecolor()
+        can_custom = curses.can_change_color() and curses.COLORS >= 24
+
+        if truecolor:
+            if "background" in theme_colors:
+                bg_r, bg_g, bg_b = theme_colors["background"]
+                _osc_set_default_bg(f"#{bg_r:02x}{bg_g:02x}{bg_b:02x}")
+
+            if can_custom:
+                for color_name, pair_id in color_pair_map.items():
+                    fg_color_id = 16 + pair_id
+                    if color_name in theme_colors:
+                        r, g, b = theme_colors[color_name]
+                        curses.init_color(fg_color_id, int((r / 255.0) * 1000), int((g / 255.0) * 1000), int((b / 255.0) * 1000))
+                        curses.init_pair(pair_id, fg_color_id, -1)
+        elif can_custom and curses.COLORS >= 256:
             bg_color_id = 100
             if "background" in theme_colors:
                 bg_r, bg_g, bg_b = theme_colors["background"]
-                bg_r_curses = int((bg_r / 255.0) * 1000)
-                bg_g_curses = int((bg_g / 255.0) * 1000)
-                bg_b_curses = int((bg_b / 255.0) * 1000)
-                curses.init_color(bg_color_id, bg_r_curses, bg_g_curses, bg_b_curses)
+                curses.init_color(bg_color_id, int((bg_r / 255.0) * 1000), int((bg_g / 255.0) * 1000), int((bg_b / 255.0) * 1000))
             else:
                 curses.init_color(bg_color_id, 0, 0, 0)
-            
-            # Map color names to curses color pairs
-            color_pair_map = {
-                "title_attack": 1,
-                "date": 2,
-                "ip_address": 3,
-                "local_ip_address": 17,  # New color for local IPs
-                "rule_id": 4,
-                "response_code": 5,
-                "severity_base": 6,
-                "host": 7,
-                "blocked_indicator": 8,
-                "severity_emergency": 9,
-                "severity_alert": 10,
-                "severity_critical": 11,
-                "severity_error": 12,
-                "severity_warning": 13,
-                "severity_notice": 14,
-                "severity_info": 15,
-                "severity_debug": 16
-            }
-            
-            # Update existing color definitions with background
-            # Use deterministic color_id per pair to avoid shifting when colors are missing
             for color_name, pair_id in color_pair_map.items():
-                fg_color_id = 16 + pair_id  # Deterministic: each pair gets its own color slot
+                fg_color_id = 16 + pair_id
                 if color_name in theme_colors:
                     r, g, b = theme_colors[color_name]
-                    # Convert RGB (0-255) to curses range (0-1000)
-                    r_curses = int((r / 255.0) * 1000)
-                    g_curses = int((g / 255.0) * 1000)
-                    b_curses = int((b / 255.0) * 1000)
-
-                    curses.init_color(fg_color_id, r_curses, g_curses, b_curses)
-                    curses.init_pair(pair_id, fg_color_id, bg_color_id)  # Use background color
+                    curses.init_color(fg_color_id, int((r / 255.0) * 1000), int((g / 255.0) * 1000), int((b / 255.0) * 1000))
+                    curses.init_pair(pair_id, fg_color_id, bg_color_id)
         
         return current_theme
     except Exception as e:
@@ -812,61 +808,61 @@ def init_colors():
     theme_name = get_theme_from_env()
     load_theme(theme_name)
     
-    # Set terminal background via OSC escape (ensures full background coverage)
-    if "background" in theme_colors:
-        bg_r, bg_g, bg_b = theme_colors["background"]
-        _osc_set_default_bg(f"#{bg_r:02x}{bg_g:02x}{bg_b:02x}")
+    # Map color names to curses color pairs
+    color_pair_map = {
+        "title_attack": 1,
+        "date": 2,
+        "ip_address": 3,
+        "local_ip_address": 17,
+        "rule_id": 4,
+        "response_code": 5,
+        "severity_base": 6,
+        "host": 7,
+        "blocked_indicator": 8,
+        "severity_emergency": 9,
+        "severity_alert": 10,
+        "severity_critical": 11,
+        "severity_error": 12,
+        "severity_warning": 13,
+        "severity_notice": 14,
+        "severity_info": 15,
+        "severity_debug": 16
+    }
 
-    # Check if terminal supports truecolor
-    if curses.can_change_color() and curses.COLORS >= 256:
-        # Initialize color palette with theme colors
-        bg_color_id = 100  # Background color ID
+    truecolor = _supports_truecolor()
+    can_custom = curses.can_change_color() and curses.COLORS >= 24
 
-        # Initialize background color
+    if truecolor:
+        # Truecolor path: set terminal bg via OSC, use -1 (default) for pair bg
         if "background" in theme_colors:
             bg_r, bg_g, bg_b = theme_colors["background"]
-            bg_r_curses = int((bg_r / 255.0) * 1000)
-            bg_g_curses = int((bg_g / 255.0) * 1000)
-            bg_b_curses = int((bg_b / 255.0) * 1000)
-            curses.init_color(bg_color_id, bg_r_curses, bg_g_curses, bg_b_curses)
+            _osc_set_default_bg(f"#{bg_r:02x}{bg_g:02x}{bg_b:02x}")
+
+        if can_custom:
+            for color_name, pair_id in color_pair_map.items():
+                fg_color_id = 16 + pair_id
+                if color_name in theme_colors:
+                    r, g, b = theme_colors[color_name]
+                    r_curses = int((r / 255.0) * 1000)
+                    g_curses = int((g / 255.0) * 1000)
+                    b_curses = int((b / 255.0) * 1000)
+                    curses.init_color(fg_color_id, r_curses, g_curses, b_curses)
+                    curses.init_pair(pair_id, fg_color_id, -1)  # -1 = terminal default bg
+    elif can_custom and curses.COLORS >= 256:
+        # 256-color path: redefine colors including background
+        bg_color_id = 100
+        if "background" in theme_colors:
+            bg_r, bg_g, bg_b = theme_colors["background"]
+            curses.init_color(bg_color_id, int((bg_r / 255.0) * 1000), int((bg_g / 255.0) * 1000), int((bg_b / 255.0) * 1000))
         else:
-            # Default to black background
             curses.init_color(bg_color_id, 0, 0, 0)
-        
-        # Map color names to curses color pairs
-        color_pair_map = {
-            "title_attack": 1,
-            "date": 2,
-            "ip_address": 3,
-            "local_ip_address": 17,  # New color for local IPs
-            "rule_id": 4,
-            "response_code": 5,
-            "severity_base": 6,
-            "host": 7,
-            "blocked_indicator": 8,
-            "severity_emergency": 9,
-            "severity_alert": 10,
-            "severity_critical": 11,
-            "severity_error": 12,
-            "severity_warning": 13,
-            "severity_notice": 14,
-            "severity_info": 15,
-            "severity_debug": 16
-        }
-        
-        # Initialize colors and pairs with background
-        # Use deterministic color_id per pair to avoid shifting when colors are missing
+
         for color_name, pair_id in color_pair_map.items():
-            fg_color_id = 16 + pair_id  # Deterministic: each pair gets its own color slot
+            fg_color_id = 16 + pair_id
             if color_name in theme_colors:
                 r, g, b = theme_colors[color_name]
-                # Convert RGB (0-255) to curses range (0-1000)
-                r_curses = int((r / 255.0) * 1000)
-                g_curses = int((g / 255.0) * 1000)
-                b_curses = int((b / 255.0) * 1000)
-
-                curses.init_color(fg_color_id, r_curses, g_curses, b_curses)
-                curses.init_pair(pair_id, fg_color_id, bg_color_id)  # Use background color
+                curses.init_color(fg_color_id, int((r / 255.0) * 1000), int((g / 255.0) * 1000), int((b / 255.0) * 1000))
+                curses.init_pair(pair_id, fg_color_id, bg_color_id)
     else:
         # Fallback to basic colors for terminals without truecolor support
         curses.init_pair(1, curses.COLOR_CYAN, curses.COLOR_BLACK)    # Title and Attack Name
