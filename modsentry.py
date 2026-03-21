@@ -47,6 +47,25 @@ def is_valid_ip(ip_str):
     parts = ip_str.split('.')
     return all(0 <= int(p) <= 255 for p in parts)
 
+def _osc_set_default_bg(hex_color):
+    """Set terminal default background via OSC escape sequence."""
+    try:
+        h = hex_color.lstrip("#")
+        if len(h) == 3:
+            h = "".join(c * 2 for c in h)
+        elif len(h) == 8:
+            h = h[:6]
+        os.write(sys.stdout.fileno(), f"\x1b]11;#{h}\x07".encode("ascii", "ignore"))
+    except Exception:
+        pass
+
+def _osc_reset_default_bg():
+    """Reset terminal default background to original."""
+    try:
+        os.write(sys.stdout.fileno(), b"\x1b]111\x07")
+    except Exception:
+        pass
+
 # Mapping of severity numbers to descriptions
 SEVERITY_MAP = {
     "0": "Emergency",
@@ -438,7 +457,12 @@ def reinitialize_colors_with_theme(theme_name):
     try:
         # Load the new theme
         load_theme(theme_name)
-        
+
+        # Set terminal background via OSC escape
+        if "background" in theme_colors:
+            bg_r, bg_g, bg_b = theme_colors["background"]
+            _osc_set_default_bg(f"#{bg_r:02x}{bg_g:02x}{bg_b:02x}")
+
         # Check if terminal supports truecolor
         if curses.can_change_color() and curses.COLORS >= 256:
             # Update background color
@@ -788,12 +812,16 @@ def init_colors():
     theme_name = get_theme_from_env()
     load_theme(theme_name)
     
+    # Set terminal background via OSC escape (ensures full background coverage)
+    if "background" in theme_colors:
+        bg_r, bg_g, bg_b = theme_colors["background"]
+        _osc_set_default_bg(f"#{bg_r:02x}{bg_g:02x}{bg_b:02x}")
+
     # Check if terminal supports truecolor
     if curses.can_change_color() and curses.COLORS >= 256:
         # Initialize color palette with theme colors
-        color_id = 16  # Start from color 16 to avoid basic colors
         bg_color_id = 100  # Background color ID
-        
+
         # Initialize background color
         if "background" in theme_colors:
             bg_r, bg_g, bg_b = theme_colors["background"]
@@ -1454,6 +1482,7 @@ def monitor_log_file(stdscr, log_file_path):
                 time.sleep(0.01)  # 10ms sleep to reduce CPU usage
     finally:
         log_file.close()
+        _osc_reset_default_bg()
 
 def display_help():
     available_themes = get_available_themes()
