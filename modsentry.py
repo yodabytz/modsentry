@@ -905,7 +905,7 @@ def wrap_text(text, width):
 
 def show_detailed_entry(stdscr, entry):
     stdscr.clear()
-    stdscr.bkgd(' ', curses.color_pair(1))  # Set background
+    stdscr.bkgd(curses.color_pair(1))  # Set background
     stdscr.border(0)
 
     date, ip, host, rule_id, attack_name, severity, response_code, payload, info, additional_info = entry.split(FIELD_SEP)
@@ -964,7 +964,7 @@ def show_detailed_entry(stdscr, entry):
 
     while True:
         stdscr.erase()  # Use erase instead of clear to reduce flickering
-        stdscr.bkgd(' ', curses.color_pair(1))  # Set background
+        stdscr.bkgd(curses.color_pair(1))  # Set background
         stdscr.border(0)
         stdscr.addstr(0, (max_x - len("Attack Details")) // 2, "Attack Details", curses.color_pair(1) | curses.A_BOLD)
         stdscr.addstr(max_y - 2, (max_x - len("Press <Left Arrow> to return | Up/Down to scroll")) // 2, "Press <Left Arrow> to return | Up/Down to scroll", curses.color_pair(1) | curses.A_BOLD)
@@ -988,7 +988,7 @@ def show_confirmation_window(stdscr, message):
     win_height = 5
 
     win = curses.newwin(win_height, win_width, (max_y - win_height) // 2, (max_x - win_width) // 2)
-    win.bkgd(' ', curses.color_pair(1))  # Set background
+    win.bkgd(curses.color_pair(1))  # Set background
     win.border(0)
     win.addstr(1, 2, message, curses.color_pair(1))
     win.addstr(3, 2, "Press 'y' to confirm, 'n' to cancel.", curses.color_pair(1))
@@ -1007,7 +1007,7 @@ def show_done_window(stdscr, message):
     win_height = 3
 
     win = curses.newwin(win_height, win_width, (max_y - win_height) // 2, (max_x - win_width) // 2)
-    win.bkgd(' ', curses.color_pair(1))  # Set background
+    win.bkgd(curses.color_pair(1))  # Set background
     win.border(0)
     win.addstr(1, 2, message, curses.color_pair(1))
     win.refresh()
@@ -1033,7 +1033,7 @@ def show_theme_selection_window(stdscr):
         
         win = curses.newwin(win_height, win_width, (max_y - win_height) // 2, (max_x - win_width) // 2)
         win.keypad(True)  # Enable keypad for arrow keys
-        win.bkgd(' ', curses.color_pair(1))  # Set background for dialog
+        win.bkgd(curses.color_pair(1))  # Set background for dialog
         
         selected_index = 0
         
@@ -1120,7 +1120,7 @@ def show_ignored_rules_window(stdscr):
 
     win = curses.newwin(win_height, win_width, (max_y - win_height) // 2, (max_x - win_width) // 2)
     win.keypad(True)
-    win.bkgd(' ', curses.color_pair(1))
+    win.bkgd(curses.color_pair(1))
 
     scroll_offset = 0
 
@@ -1202,7 +1202,7 @@ def monitor_log_file(stdscr, log_file_path):
     init_colors()
     
     # Set background color for the entire screen
-    stdscr.bkgd(' ', curses.color_pair(1))  # Use a color pair for background
+    stdscr.bkgd(curses.color_pair(1))  # Use a color pair for background
 
     height, width = stdscr.getmaxyx()
 
@@ -1302,7 +1302,7 @@ def monitor_log_file(stdscr, log_file_path):
             # Full redraw only when needed
             if needs_full_redraw:
                 stdscr.erase()
-                stdscr.bkgd(' ', curses.color_pair(1))
+                stdscr.bkgd(curses.color_pair(1))
                 stdscr.border(0)
                 draw_header(stdscr, width)
                 needs_full_redraw = False
@@ -1354,7 +1354,7 @@ def monitor_log_file(stdscr, log_file_path):
                 if ip.strip() in whitelist:
                     show_done_window(stdscr, f"IP {ip.strip()} is whitelisted - cannot block")
                     stdscr.erase()
-                    stdscr.bkgd(' ', curses.color_pair(1))
+                    stdscr.bkgd(curses.color_pair(1))
                     stdscr.border(0)
                     draw_header(stdscr, width)
                     last_draw_state.clear()
@@ -1373,7 +1373,7 @@ def monitor_log_file(stdscr, log_file_path):
                         show_done_window(stdscr, "Done!")
                 # Refresh main screen after dialog closes (whether confirmed or cancelled)
                 stdscr.erase()
-                stdscr.bkgd(' ', curses.color_pair(1))
+                stdscr.bkgd(curses.color_pair(1))
                 stdscr.border(0)
                 draw_header(stdscr, width)
                 last_draw_state.clear()
@@ -1397,7 +1397,7 @@ def monitor_log_file(stdscr, log_file_path):
                         show_done_window(stdscr, "Done!")
                 # Refresh main screen after dialog closes (whether confirmed or cancelled)
                 stdscr.erase()
-                stdscr.bkgd(' ', curses.color_pair(1))
+                stdscr.bkgd(curses.color_pair(1))
                 stdscr.border(0)
                 draw_header(stdscr, width)
                 last_draw_state.clear()
@@ -1416,7 +1416,7 @@ def monitor_log_file(stdscr, log_file_path):
                 # Always refresh the main screen
                 stdscr.erase()
                 # Set background color after theme change
-                stdscr.bkgd(' ', curses.color_pair(1))
+                stdscr.bkgd(curses.color_pair(1))
                 stdscr.border(0)
                 draw_header(stdscr, width)
                 needs_display_update = True
@@ -1425,7 +1425,7 @@ def monitor_log_file(stdscr, log_file_path):
                 if not log_entries:
                     show_done_window(stdscr, "No entries to select")
                     stdscr.erase()
-                    stdscr.bkgd(' ', curses.color_pair(1))
+                    stdscr.bkgd(curses.color_pair(1))
                     stdscr.border(0)
                     draw_header(stdscr, width)
                     needs_display_update = True
@@ -1444,7 +1444,7 @@ def monitor_log_file(stdscr, log_file_path):
                 else:
                     show_done_window(stdscr, "Cannot add N/A rule")
                 stdscr.erase()
-                stdscr.bkgd(' ', curses.color_pair(1))
+                stdscr.bkgd(curses.color_pair(1))
                 stdscr.border(0)
                 draw_header(stdscr, width)
                 needs_display_update = True
@@ -1452,7 +1452,7 @@ def monitor_log_file(stdscr, log_file_path):
             elif char == ord('l'):  # Handle list ignored rules command
                 show_ignored_rules_window(stdscr)
                 stdscr.erase()
-                stdscr.bkgd(' ', curses.color_pair(1))
+                stdscr.bkgd(curses.color_pair(1))
                 stdscr.border(0)
                 draw_header(stdscr, width)
                 last_draw_state.clear()
@@ -1464,7 +1464,7 @@ def monitor_log_file(stdscr, log_file_path):
                 show_detailed_entry(stdscr, log_entries[selected_line])
                 stdscr.erase()  # Use erase to clear without flicker
                 # Restore background color after detailed view
-                stdscr.bkgd(' ', curses.color_pair(1))
+                stdscr.bkgd(curses.color_pair(1))
                 stdscr.border(0)
                 draw_header(stdscr, width)
                 last_draw_state.clear()  # Clear cache to force full redraw
