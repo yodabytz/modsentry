@@ -635,8 +635,14 @@ def parse_log_entry(entry):
         if ':' in host:
             host = host.split(':')[0]
     else:
-        # Fallback to remote IP if no Host header found
-        host = remote_ip
+        # Fallback to [hostname "..."] from section H
+        hostname_match = re.search(r'\[hostname "(.*?)"\]', entry)
+        if hostname_match:
+            host = hostname_match.group(1).strip()
+            if ':' in host:
+                host = host.split(':')[0]
+        else:
+            host = remote_ip
 
     # Extract rule ID from section H
     rule_id_match = re.search(r'\[id "(\d+)"\]', entry)
@@ -656,7 +662,12 @@ def parse_log_entry(entry):
 
     # Extract payload from section B (the request line)
     payload_match = re.search(r'^---.*?---B--\n(.*?)\n', entry, re.MULTILINE)
-    payload = payload_match.group(1).strip() if payload_match else 'N/A'
+    if payload_match:
+        payload = payload_match.group(1).strip()
+    else:
+        # Fallback to [uri "..."] from section H
+        uri_match = re.search(r'\[uri "(.*?)"\]', entry)
+        payload = uri_match.group(1).strip() if uri_match else 'N/A'
 
     # Extract info from section H
     info_match = re.search(r'^---.*?---H--\n(.*?)\n---', entry, re.MULTILINE | re.DOTALL)
@@ -665,6 +676,22 @@ def parse_log_entry(entry):
     # Additional info from section E or elsewhere
     additional_info_match = re.search(r'^---.*?---E--\n(.*?)\n---', entry, re.MULTILINE | re.DOTALL)
     additional_info = additional_info_match.group(1).strip() if additional_info_match else 'N/A'
+
+    # Fallback: extract IP from section H [data "..."] if still N/A
+    if remote_ip == 'N/A':
+        data_ip_match = re.search(r'\[data "(\d{1,3}(?:\.\d{1,3}){3})', entry)
+        if data_ip_match:
+            remote_ip = data_ip_match.group(1)
+
+    # Fallback: extract date from unique_id timestamp if still N/A
+    if remote_date == 'N/A':
+        uid_match = re.search(r'\[unique_id "(\d+)', entry)
+        if uid_match:
+            try:
+                ts = float(uid_match.group(1)[:10])
+                remote_date = datetime.fromtimestamp(ts).strftime("%d/%b/%Y:%H:%M:%S +0000")
+            except (ValueError, OSError):
+                pass
 
     return remote_date, remote_ip, host, rule_id, attack_name, severity, response_code, payload, info, additional_info
 
