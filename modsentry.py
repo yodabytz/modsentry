@@ -18,7 +18,7 @@ import io
 import tempfile
 
 # Version
-VERSION = "1.5"
+VERSION = "1.5.1"
 
 # Configuration file paths
 CONFIG_FILE = "/etc/modsentry/modsentry.conf"
