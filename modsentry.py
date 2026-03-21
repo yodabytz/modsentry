@@ -474,18 +474,18 @@ def reinitialize_colors_with_theme(theme_name):
             }
             
             # Update existing color definitions with background
-            color_id = 16  # Start from color 16 to avoid basic colors
+            # Use deterministic color_id per pair to avoid shifting when colors are missing
             for color_name, pair_id in color_pair_map.items():
+                fg_color_id = 16 + pair_id  # Deterministic: each pair gets its own color slot
                 if color_name in theme_colors:
                     r, g, b = theme_colors[color_name]
                     # Convert RGB (0-255) to curses range (0-1000)
                     r_curses = int((r / 255.0) * 1000)
                     g_curses = int((g / 255.0) * 1000)
                     b_curses = int((b / 255.0) * 1000)
-                    
-                    curses.init_color(color_id, r_curses, g_curses, b_curses)
-                    curses.init_pair(pair_id, color_id, bg_color_id)  # Use background color
-                    color_id += 1
+
+                    curses.init_color(fg_color_id, r_curses, g_curses, b_curses)
+                    curses.init_pair(pair_id, fg_color_id, bg_color_id)  # Use background color
         
         return current_theme
     except Exception as e:
@@ -827,17 +827,18 @@ def init_colors():
         }
         
         # Initialize colors and pairs with background
+        # Use deterministic color_id per pair to avoid shifting when colors are missing
         for color_name, pair_id in color_pair_map.items():
+            fg_color_id = 16 + pair_id  # Deterministic: each pair gets its own color slot
             if color_name in theme_colors:
                 r, g, b = theme_colors[color_name]
                 # Convert RGB (0-255) to curses range (0-1000)
                 r_curses = int((r / 255.0) * 1000)
                 g_curses = int((g / 255.0) * 1000)
                 b_curses = int((b / 255.0) * 1000)
-                
-                curses.init_color(color_id, r_curses, g_curses, b_curses)
-                curses.init_pair(pair_id, color_id, bg_color_id)  # Use background color
-                color_id += 1
+
+                curses.init_color(fg_color_id, r_curses, g_curses, b_curses)
+                curses.init_pair(pair_id, fg_color_id, bg_color_id)  # Use background color
     else:
         # Fallback to basic colors for terminals without truecolor support
         curses.init_pair(1, curses.COLOR_CYAN, curses.COLOR_BLACK)    # Title and Attack Name
