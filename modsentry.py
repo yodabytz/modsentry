@@ -78,6 +78,21 @@ def _supports_truecolor():
         return True
     return False
 
+def _nearest_xterm256(hex_r, hex_g, hex_b):
+    """Map RGB (0-255) to nearest xterm-256 color index."""
+    levels = [0, 95, 135, 175, 215, 255]
+    def quant(v):
+        return min(range(6), key=lambda i: abs(levels[i] - v))
+    ri, gi, bi = quant(hex_r), quant(hex_g), quant(hex_b)
+    cube_idx = 16 + 36 * ri + 6 * gi + bi
+    cube_rgb = (levels[ri], levels[gi], levels[bi])
+    gray_index = 232 + max(0, min(23, int(round(((hex_r + hex_g + hex_b) // 3 - 8) / 10))))
+    gray_val = 8 + (gray_index - 232) * 10
+    gray_rgb = (gray_val, gray_val, gray_val)
+    def dist(a, b, c, x, y, z):
+        return (a - x) ** 2 + (b - y) ** 2 + (c - z) ** 2
+    return cube_idx if dist(hex_r, hex_g, hex_b, *cube_rgb) <= dist(hex_r, hex_g, hex_b, *gray_rgb) else gray_index
+
 # Mapping of severity numbers to descriptions
 SEVERITY_MAP = {
     "0": "Emergency",
@@ -493,6 +508,12 @@ def reinitialize_colors_with_theme(theme_name):
                         r, g, b = theme_colors[color_name]
                         curses.init_color(fg_color_id, int((r / 255.0) * 1000), int((g / 255.0) * 1000), int((b / 255.0) * 1000))
                         curses.init_pair(pair_id, fg_color_id, -1)
+            else:
+                for color_name, pair_id in color_pair_map.items():
+                    if color_name in theme_colors:
+                        r, g, b = theme_colors[color_name]
+                        fg_idx = _nearest_xterm256(r, g, b)
+                        curses.init_pair(pair_id, fg_idx, -1)
         elif can_custom and curses.COLORS >= 256:
             bg_color_id = 100
             if "background" in theme_colors:
@@ -839,15 +860,20 @@ def init_colors():
             _osc_set_default_bg(f"#{bg_r:02x}{bg_g:02x}{bg_b:02x}")
 
         if can_custom:
+            # Can redefine colors: use init_color for exact RGB
             for color_name, pair_id in color_pair_map.items():
                 fg_color_id = 16 + pair_id
                 if color_name in theme_colors:
                     r, g, b = theme_colors[color_name]
-                    r_curses = int((r / 255.0) * 1000)
-                    g_curses = int((g / 255.0) * 1000)
-                    b_curses = int((b / 255.0) * 1000)
-                    curses.init_color(fg_color_id, r_curses, g_curses, b_curses)
-                    curses.init_pair(pair_id, fg_color_id, -1)  # -1 = terminal default bg
+                    curses.init_color(fg_color_id, int((r / 255.0) * 1000), int((g / 255.0) * 1000), int((b / 255.0) * 1000))
+                    curses.init_pair(pair_id, fg_color_id, -1)
+        else:
+            # Cannot redefine colors (e.g. tmux): map to nearest xterm-256 index
+            for color_name, pair_id in color_pair_map.items():
+                if color_name in theme_colors:
+                    r, g, b = theme_colors[color_name]
+                    fg_idx = _nearest_xterm256(r, g, b)
+                    curses.init_pair(pair_id, fg_idx, -1)
     elif can_custom and curses.COLORS >= 256:
         # 256-color path: redefine colors including background
         bg_color_id = 100
