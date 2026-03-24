@@ -552,19 +552,35 @@ def get_whois_info(ip_address):
             return f"Whois lookup failed: {str(fallback_e)}"
 
 def check_iptables_chain():
-    """Check if the ModSentry iptables chain exists and create it if not."""
+    """Check if the ModSentry iptables chain exists, create it if not, and ensure it's at position 1."""
     try:
         # Check if the ModSentry chain exists
         subprocess.run(['iptables', '-L', 'ModSentry'], check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-        # Chain exists, restore blocked IPs from persistent file
-        restore_blocked_ips_from_file()
     except subprocess.CalledProcessError:
         # Create the ModSentry chain if it doesn't exist
         subprocess.run(['iptables', '-N', 'ModSentry'], check=True)
-        # Insert the ModSentry chain at position 1 (checked FIRST, before ACCEPT rules)
+
+    # Ensure ModSentry is at position 1 in INPUT chain
+    result = subprocess.run(['iptables', '-L', 'INPUT', '--line-numbers', '-n'],
+                           capture_output=True, text=True)
+    modsentry_pos = None
+    for line in result.stdout.splitlines():
+        parts = line.split()
+        if len(parts) >= 2 and parts[1] == 'ModSentry':
+            modsentry_pos = int(parts[0])
+            break
+
+    if modsentry_pos is None:
+        # Not in INPUT at all — insert at position 1
         subprocess.run(['iptables', '-I', 'INPUT', '1', '-j', 'ModSentry'], check=True)
-        # Restore blocked IPs from persistent file
-        restore_blocked_ips_from_file()
+    elif modsentry_pos != 1:
+        # Exists but not at position 1 — remove and reinsert
+        subprocess.run(['iptables', '-D', 'INPUT', '-j', 'ModSentry'],
+                      capture_output=True)
+        subprocess.run(['iptables', '-I', 'INPUT', '1', '-j', 'ModSentry'], check=True)
+
+    # Restore blocked IPs from persistent file
+    restore_blocked_ips_from_file()
 
 def is_ip_blocked(ip):
     """Check if the given IP is already blocked in the ModSentry chain."""
