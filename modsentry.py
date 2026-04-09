@@ -10,12 +10,7 @@ import whois
 import json
 import glob
 import argparse
-import socket
 from datetime import datetime
-import cProfile
-import pstats
-import io
-import tempfile
 
 # Version
 VERSION = "1.5.1"
@@ -108,46 +103,6 @@ SEVERITY_MAP = {
 # Global variables for theme management
 current_theme = None
 theme_colors = {}
-
-# DNS lookup cache to avoid repeated slow lookups
-dns_cache = {}
-
-# Debug profiler
-class LoopProfiler:
-    """Simple profiler to track time spent in different parts of the main loop."""
-    def __init__(self):
-        self.times = {}
-        self.counts = {}
-        self.start_time = None
-
-    def start(self, section):
-        self.start_time = time.time()
-
-    def end(self, section):
-        if self.start_time is None:
-            return
-        elapsed = time.time() - self.start_time
-        self.times[section] = self.times.get(section, 0) + elapsed
-        self.counts[section] = self.counts.get(section, 0) + 1
-
-    def report(self):
-        """Print profiling report to debug log."""
-        debug_log = "/var/log/modsentry_debug.log"
-        try:
-            fd = os.open(debug_log, os.O_WRONLY | os.O_CREAT | os.O_APPEND | os.O_NOFOLLOW, 0o600)
-        except OSError:
-            return
-        with os.fdopen(fd, "a") as f:
-            f.write(f"\n=== Loop Profiler Report ===\n")
-            for section in ['select', 'process_entry', 'display', 'getch', 'other']:
-                if section in self.times:
-                    total = self.times[section]
-                    count = self.counts[section]
-                    avg = total / count if count > 0 else 0
-                    f.write(f"{section:20} Total: {total:8.3f}s Count: {count:6d} Avg: {avg*1000:6.2f}ms\n")
-            f.write(f"==========================\n")
-
-profiler = LoopProfiler()
 
 # Mapping of severity descriptions to color names
 SEVERITY_COLOR_MAP = {
@@ -741,43 +696,6 @@ def is_local_ip(ip_str):
     except (ValueError, IndexError):
         return False
 
-def get_domain_from_ip(ip_str, enable_dns_lookup=False):
-    """Get domain name from IP using cached reverse DNS lookup.
-
-    Args:
-        ip_str: IP address to lookup
-        enable_dns_lookup: Set to True to enable reverse DNS (disabled by default for performance)
-    """
-    ip_str = ip_str.strip()
-    if not ip_str or ip_str == 'N/A' or not enable_dns_lookup:
-        return ip_str
-
-    # Check cache first
-    if ip_str in dns_cache:
-        return dns_cache[ip_str]
-
-    try:
-        # Try reverse DNS lookup - timeout after 0.5 seconds
-        socket.setdefaulttimeout(0.5)
-        domain = socket.gethostbyaddr(ip_str)[0]
-        socket.setdefaulttimeout(None)
-
-        # Return just the domain, not the full FQDN if it's very long
-        if len(domain) > 20:
-            result = domain.split('.')[-2] + '.' + domain.split('.')[-1]
-        else:
-            result = domain
-
-        # Cache the result
-        dns_cache[ip_str] = result
-        return result
-    except (socket.herror, socket.timeout, OSError):
-        # Cache the failure (return IP)
-        dns_cache[ip_str] = ip_str
-        return ip_str
-    finally:
-        socket.setdefaulttimeout(None)
-
 def display_log_entries(stdscr, log_entries, current_line, selected_line, blocked_ips, last_draw_state):
     """Display log entries with optimized rendering to reduce flicker."""
     height, width = stdscr.getmaxyx()
@@ -1265,9 +1183,8 @@ def read_last_entries(log_file_path, max_bytes=102400, max_entries=10):
 def monitor_log_file(stdscr, log_file_path):
     curses.curs_set(0)  # Hide cursor
     stdscr.nodelay(True)  # Non-blocking input
-    
+
     # Initialize colors with theme support
-    theme_name = get_theme_from_env()
     init_colors()
     
     # Set background color for the entire screen
@@ -1311,14 +1228,8 @@ def monitor_log_file(stdscr, log_file_path):
     blocked_ips = set()
     last_blocked_ips_update = 0
 
-    loop_count = 0
-    last_log_time = time.time()
-
     try:
         while True:
-            loop_count += 1
-            loop_start_time = time.time()
-
             # Detect log file rotation (inode change)
             try:
                 current_inode = os.stat(log_file_path).st_ino
@@ -1330,36 +1241,38 @@ def monitor_log_file(stdscr, log_file_path):
             except OSError:
                 pass  # File temporarily unavailable during rotation
 
-            # Read new data (select on regular files always returns ready on Linux)
-            profiler.start('select')
-            time.sleep(0.1)  # 100ms poll interval
-            profiler.end('select')
+            # Drain all currently-available lines from the log file each
+            # iteration. ModSecurity audit entries are dozens to hundreds of
+            # lines each, so reading one line per poll would lag the display.
             has_new_data = False
-
-            line = log_file.readline()
-            if line:
+            lines_read = 0
+            while lines_read < 2000:  # Cap per iteration to keep UI responsive
+                line = log_file.readline()
+                if not line:
+                    break
+                lines_read += 1
                 buffer += line
-                if re.match(r'^--[-\w]+---Z--', line.strip()):
-                    # End of an entry
-                    entry = buffer
-                    buffer = ''
-                    # Process the entry
-                    profiler.start('process_entry')
-                    remote_date, remote_ip, host, rule_id, attack_name, severity, response_code, payload, info, additional_info = parse_log_entry(entry)
-                    profiler.end('process_entry')
+                if not re.match(r'^--[-\w]+---Z--', line.strip()):
+                    continue
 
-                    if rule_id != 'N/A' and rule_id not in IGNORE_RULE_IDS:
-                        formatted_entry = format_entry(remote_date, remote_ip, host, rule_id, attack_name, severity, response_code, payload, info, additional_info)
-                        log_entries.append(formatted_entry)
-                        log_entries = log_entries[-MAX_ENTRIES:]  # Keep only the last MAX_ENTRIES entries
-                        # Auto-scroll to the bottom when new entries arrive
-                        current_line = max(0, len(log_entries) - (height - 8))
-                        selected_line = len(log_entries) - 1
-                        needs_full_redraw = True  # Mark for redraw on new entry
-                        needs_display_update = True  # Mark display for update
-                        last_draw_state.clear()  # Clear cache on new entries
-                        has_new_data = True
-                        last_log_time = time.time()
+                # End of an entry — process it
+                entry = buffer
+                buffer = ''
+                remote_date, remote_ip, host, rule_id, attack_name, severity, response_code, payload, info, additional_info = parse_log_entry(entry)
+
+                if rule_id == 'N/A' or rule_id in IGNORE_RULE_IDS:
+                    continue
+
+                formatted_entry = format_entry(remote_date, remote_ip, host, rule_id, attack_name, severity, response_code, payload, info, additional_info)
+                log_entries.append(formatted_entry)
+                log_entries = log_entries[-MAX_ENTRIES:]  # Keep only the last MAX_ENTRIES entries
+                # Auto-scroll to the bottom when new entries arrive
+                current_line = max(0, len(log_entries) - (height - 8))
+                selected_line = len(log_entries) - 1
+                needs_full_redraw = True  # Mark for redraw on new entry
+                needs_display_update = True  # Mark display for update
+                last_draw_state.clear()  # Clear cache on new entries
+                has_new_data = True
 
             # Update blocked_ips every 5 seconds
             current_time = time.time()
@@ -1378,21 +1291,13 @@ def monitor_log_file(stdscr, log_file_path):
 
             # Display the last entries that fit the screen height (only if needed)
             if needs_display_update:
-                profiler.start('display')
                 display_log_entries(stdscr, log_entries, current_line, selected_line, blocked_ips, last_draw_state)
                 # Use doupdate for atomic refresh
                 curses.doupdate()
-                profiler.end('display')
                 needs_display_update = False
 
-            # Periodically dump profiler stats
-            if loop_count % 1000 == 0:
-                profiler.report()
-
             # Handle scrolling and quitting (non-blocking)
-            profiler.start('getch')
             char = stdscr.getch()
-            profiler.end('getch')
             if char == ord('q'):
                 return
             elif char == curses.KEY_RESIZE:
@@ -1540,11 +1445,11 @@ def monitor_log_file(stdscr, log_file_path):
                 needs_display_update = True
                 continue  # Continue the loop to refresh the main screen
 
-            # Add a small sleep when idle to prevent busy-waiting
-            # This prevents 100% CPU usage when there's no new data or user input
+            # Add a small sleep when idle to prevent busy-waiting.
+            # When there's new data we loop immediately so the rest of an
+            # in-progress entry gets drained on the next iteration.
             if char == -1 and not has_new_data:
-                # No input and no new log data - safe to sleep briefly
-                time.sleep(0.01)  # 10ms sleep to reduce CPU usage
+                time.sleep(0.05)  # 50ms idle sleep — keystroke-responsive, low CPU
     finally:
         log_file.close()
         _osc_reset_default_bg()
